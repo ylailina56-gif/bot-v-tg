@@ -1,5 +1,4 @@
 import os
-import re
 import telebot
 import threading
 import time
@@ -15,9 +14,8 @@ from db import (
     save_user, set_reminder, get_reminder, get_all_reminder_users,
 )
 
-TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-if not TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
+# Твой рабочий токен, который мы нашли!
+TOKEN = "8703775745:AAGt78MkW2dcBDm5AskVfNCEjctQ63H-Xmc"
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -50,137 +48,76 @@ HELP_TEXT = """
 """
 
 def main_keyboard():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    buttons = [
-        KeyboardButton("💳 Баланс"),
-        KeyboardButton("📋 История"),
-        KeyboardButton("📊 Категории"),
-        KeyboardButton("📅 Месяц"),
-    ]
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    btn1 = KeyboardButton("💳 Баланс")
+    btn2 = KeyboardButton("📋 История")
+    btn3 = KeyboardButton("📊 Категории")
+    btn4 = KeyboardButton("📅 Месяц")
+    markup.add(btn1, btn2, btn3, btn4)
+
     if MINIAPP_URL:
-        buttons.append(KeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=MINIAPP_URL)))
-    kb.add(*buttons)
-    return kb
+        web_app = WebAppInfo(MINIAPP_URL)
+        btn_app = KeyboardButton("📱 Открыть Mini App", web_app=web_app)
+        markup.add(btn_app)
+    return markup
 
-def app_inline_button():
-    if not MINIAPP_URL:
-        return None
-    kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
-    return kb
-
-BOT_RUNNING = False
-
-def start_bot_if_needed():
-    global BOT_RUNNING
-    if not BOT_RUNNING:
-        BOT_RUNNING = True
-        def run():
-            while True:
-                try:
-                    bot.remove_webhook()
-                    print("Запуск автономного пуллинга бота...")
-                    bot.infinity_polling(timeout=10, long_polling_timeout=5)
-                except Exception as e:
-                    print(f"Ошибка пуллинга, рестарт через 5 сек: {e}")
-                    time.sleep(5)
-        t = threading.Thread(target=run, daemon=True)
-        t.start()
-
-# Принудительный запуск бота при открытии приложухи
-@app.route('/miniapp/')
-@app.route('/miniapp/<path:path>')
-def serve_miniapp(path="index.html"):
-    start_bot_if_needed()
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    dist_dir = os.path.join(base_dir, 'dist')
-    if not os.path.exists(dist_dir):
-        dist_dir = os.path.join(os.path.dirname(base_dir), 'dist')
-    if not os.path.exists(dist_dir):
-        dist_dir = os.path.join(os.path.dirname(base_dir), 'src', 'dist')
-    return send_from_directory(dist_dir, path)
-
-@app.route("/")
-def index():
-    start_bot_if_needed()
-    return "Бот успешно активирован и работает! 🚀", 200
-
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=["start", "help"])
 def cmd_start(message):
-    init_db()
-    save_user(message.from_user.id, message.chat.id)
-    name = message.from_user.first_name or "друг"
-
-    bot.send_message(
-        message.chat.id,
-        f"Привет, {name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}",
-        parse_mode="Markdown",
-        reply_markup=main_keyboard()
-    )
-
-    kb = app_inline_button()
-    if kb:
-        bot.send_message(
-            message.chat.id,
-            "Нажми кнопку ниже, чтобы открыть визуальный интерфейс:",
-            reply_markup=kb
-        )
-
-@bot.message_handler(commands=["help"])
-def cmd_help(message):
-    bot.send_message(message.chat.id, HELP_TEXT, parse_mode="Markdown", reply_markup=main_keyboard())
-
-@bot.message_handler(commands=["app"])
-def cmd_app(message):
-    kb = app_inline_button()
-    if kb:
-        bot.send_message(message.chat.id, "Открыть визуальный интерфейс:", reply_markup=kb)
-    else:
-        bot.send_message(message.chat.id, "Mini App недоступен.")
+    save_user(message.from_user.id, message.from_user.username)
+    welcome = f"Привет, Юля! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}"
+    bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=main_keyboard())
 
 @bot.message_handler(commands=["add"])
 def cmd_add(message):
-    save_user(message.from_user.id, message.chat.id)
-    parts = message.text.split(maxsplit=3)
-    if len(parts) < 4:
-        bot.send_message(
-            message.chat.id,
-            "❌ Неверный формат. Примеры:\n` /add доход 5000 Зарплата`",
-            parse_mode="Markdown"
-        )
-        return
-
-    _, ttype_raw, amount_raw, rest = parts
-    category_parts = rest.split(maxsplit=1)
-    category = category_parts[0]
-    note = category_parts[1] if len(category_parts) > 1 else ""
-
-    ttype_map = {"доход": "income", "приход": "income", "расход": "expense", "трата": "expense"}
-    ttype = ttype_map.get(ttype_raw.lower())
-    if not ttype:
-        bot.send_message(message.chat.id, "❌ Тип должен быть: `доход` или `расход`")
-        return
-
     try:
-        amount = float(amount_raw.replace(",", "."))
-    except ValueError:
-        bot.send_message(message.chat.id, "❌ Неверная сумма")
-        return
+        parts = message.text.split(maxsplit=3)
+        if len(parts) < 4:
+            bot.reply_to(message, "❌ Неверный формат! Используй:\n`/add расход 350 Еда`", parse_mode="Markdown")
+            return
+        t_type = parts[1].lower()
+        amount = float(parts[2])
+        category = parts[3]
 
-    add_transaction(message.from_user.id, ttype, amount, category, note)
-    balance = get_balance(message.from_user.id)
-    bot.send_message(message.chat.id, f"✅ Запись добавлена! Текущий баланс: {balance:,.2f} ₽", reply_markup=main_keyboard())
+        if t_type not in ["доход", "расход"]:
+            bot.reply_to(message, "❌ Укажи `доход` или `расход`.")
+            return
 
-@bot.message_handler(commands=["balance"])
-@bot.message_handler(func=lambda m: m.text == "💳 Баланс")
-def cmd_balance(message):
-    balance = get_balance(message.from_user.id)
-    bot.send_message(message.chat.id, f"💳 Текущий баланс: *{balance:,.2f} ₽*", parse_mode="Markdown", reply_markup=main_keyboard())
+        add_transaction(message.from_user.id, t_type, amount, category)
+        bot.reply_to(message, f"✅ Записано: {t_type} {amount} руб. в '{category}'")
+    except:
+        bot.reply_to(message, "❌ Ошибка добавления. Сумма должна быть числом.")
+
+@bot.message_handler(commands=["undo"])
+def cmd_undo(message):
+    if delete_last(message.from_user.id):
+        bot.send_message(message.chat.id, "🗑 Последняя запись успешно удалена!")
+    else:
+        bot.send_message(message.chat.id, "В базе данных пока нет ваших записей.")
 
 @bot.message_handler(func=lambda m: True)
-def fallback(message):
-    bot.send_message(message.chat.id, "Используй кнопки меню или /help", reply_markup=main_keyboard())
+def handle_menu(message):
+    user_id = message.from_user.id
+    if message.text == "💳 Баланс" or message.text == "/balance":
+        balance = get_balance(user_id)
+        bot.send_message(message.chat.id, f"💳 *Текущий баланс:* {balance} руб.", parse_mode="Markdown")
+    elif message.text == "📋 История" or message.text == "/history":
+        history = get_history(user_id)
+        bot.send_message(message.chat.id, history, parse_mode="Markdown")
+    elif message.text == "📊 Категории" or message.text == "/categories":
+        summary = get_categories_summary(user_id)
+        bot.send_message(message.chat.id, summary, parse_mode="Markdown")
+    elif message.text == "📅 Месяц" or message.text == "/month":
+        summary = get_monthly_summary(user_id)
+        bot.send_message(message.chat.id, summary, parse_mode="Markdown")
+    else:
+        bot.send_message(message.chat.id, "Используй кнопки меню или команды.")
 
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=8082)
+    # Запускаем бота в фоновом потоке, чтобы он не вешал Flask
+    bot.remove_webhook()
+    t = threading.Thread(target=lambda: bot.infinity_polling(timeout=10, long_polling_timeout=5), daemon=True)
+    t.start()
+
+    # Запускаем Flask на порту 8080 для Mini App
+    app.run(host="0.0.0.0", port=8080)
