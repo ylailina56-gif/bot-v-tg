@@ -61,19 +61,23 @@ def app_inline_button():
 def cmd_start(message):
     init_db()
     name = message.from_user.first_name or "друг"
-    kb = app_inline_button()
+
+    miniapp_url = f"https://{os.environ.get('REPLIT_DOMAINS', '').split(',')[0]}/miniapp/"
+
+    inline_kb = InlineKeyboardMarkup()
+    inline_kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=miniapp_url)))
+
     bot.send_message(
         message.chat.id,
         f"Привет, {name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}",
         parse_mode="Markdown",
         reply_markup=main_keyboard()
     )
-    if kb:
-        bot.send_message(
-            message.chat.id,
-            "Также доступен визуальный интерфейс:",
-            reply_markup=kb
-        )
+    bot.send_message(
+        message.chat.id,
+        "Нажми кнопку ниже, чтобы открыть визуальный интерфейс:",
+        reply_markup=inline_kb
+    )
 
 
 @bot.message_handler(commands=["help"])
