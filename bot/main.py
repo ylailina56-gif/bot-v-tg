@@ -14,7 +14,7 @@ from db import (
     save_user, set_reminder, get_reminder, get_all_reminder_users,
 )
 
-# Твой рабочий токен, который мы нашли!
+# Твой рабочий токен
 TOKEN = "8703775745:AAGt78MkW2dcBDm5AskVfNCEjctQ63H-Xmc"
 
 bot = telebot.TeleBot(TOKEN)
@@ -111,26 +111,11 @@ def handle_menu(message):
         bot.send_message(message.chat.id, summary, parse_mode="Markdown")
     else:
         bot.send_message(message.chat.id, "Используй кнопки меню или команды.")
-@app.route('/api/add', methods=['POST'])
-def api_add_transaction():
-    try:
-        data = request.json
-        user_id = data.get('user_id')
-        t_type = data.get('type', 'расход').lower()
-        amount = float(data.get('amount', 0))
-        category = data.get('category', 'Разное')
 
-        # Записываем в нашу базу данных
-        add_transaction(user_id, t_type, amount, category)
-        return {"status": "success"}, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 400
 if __name__ == "__main__":
     init_db()
-    # Запускаем бота в фоновом потоке, чтобы он не вешал Flask
     bot.remove_webhook()
     t = threading.Thread(target=lambda: bot.infinity_polling(timeout=10, long_polling_timeout=5), daemon=True)
     t.start()
 
-    # Запускаем Flask на порту 8080 для Mini App
     app.run(host="0.0.0.0", port=8080)
