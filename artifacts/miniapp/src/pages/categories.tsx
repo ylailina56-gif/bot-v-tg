@@ -10,7 +10,7 @@ export default function Categories() {
   const { data, isLoading } = useGetCategorySummary({ user_id: userId });
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+    return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 }).format(amount);
   };
 
   const activeData = view === "expenses" ? data?.expenses : data?.incomes;

@@ -103,7 +103,7 @@ export default function AddTransaction() {
               <Label htmlFor="amount" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</Label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
-                  $
+                  ₽
                 </span>
                 <Input
                   id="amount"
