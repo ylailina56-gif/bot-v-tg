@@ -108,3 +108,48 @@ export const GetMonthlySummaryResponse = zod.object({
 })
 
 
+/**
+ * @summary Get all category limits for a user
+ */
+export const GetLimitsQueryParams = zod.object({
+  "user_id": zod.coerce.number()
+})
+
+export const GetLimitsResponseItem = zod.object({
+  "id": zod.number(),
+  "user_id": zod.number(),
+  "category": zod.string(),
+  "monthly_limit": zod.number()
+})
+export const GetLimitsResponse = zod.array(GetLimitsResponseItem)
+
+
+/**
+ * @summary Create or update a category limit
+ */
+export const SetLimitBody = zod.object({
+  "user_id": zod.number(),
+  "category": zod.string(),
+  "monthly_limit": zod.number()
+})
+
+export const SetLimitResponse = zod.object({
+  "id": zod.number(),
+  "user_id": zod.number(),
+  "category": zod.string(),
+  "monthly_limit": zod.number()
+})
+
+
+/**
+ * @summary Delete a category limit
+ */
+export const DeleteLimitParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteLimitResponse = zod.object({
+  "success": zod.boolean()
+})
+
+

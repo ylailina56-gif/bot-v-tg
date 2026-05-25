@@ -14,6 +14,8 @@ tags:
     description: Finance transaction operations
   - name: summary
     description: Summary and analytics
+  - name: limits
+    description: Category spending limits
 paths:
   /healthz:
     get:
@@ -148,6 +150,63 @@ paths:
               schema:
                 $ref: "#/components/schemas/MonthlySummary"
 
+  /limits:
+    get:
+      operationId: getLimits
+      tags: [limits]
+      summary: Get all category limits for a user
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of limits
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Limit"
+    post:
+      operationId: setLimit
+      tags: [limits]
+      summary: Create or update a category limit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LimitInput"
+      responses:
+        "200":
+          description: Limit saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Limit"
+
+  /limits/{id}:
+    delete:
+      operationId: deleteLimit
+      tags: [limits]
+      summary: Delete a category limit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
 components:
   schemas:
     HealthStatus:
@@ -243,4 +302,28 @@ components:
         expense:
           type: number
         net:
+          type: number
+
+    Limit:
+      type: object
+      required: [id, user_id, category, monthly_limit]
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        category:
+          type: string
+        monthly_limit:
+          type: number
+
+    LimitInput:
+      type: object
+      required: [user_id, category, monthly_limit]
+      properties:
+        user_id:
+          type: integer
+        category:
+          type: string
+        monthly_limit:
           type: number

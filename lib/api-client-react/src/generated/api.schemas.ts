@@ -70,6 +70,19 @@ export interface MonthlySummary {
   net: number;
 }
 
+export interface Limit {
+  id: number;
+  user_id: number;
+  category: string;
+  monthly_limit: number;
+}
+
+export interface LimitInput {
+  user_id: number;
+  category: string;
+  monthly_limit: number;
+}
+
 export type ListTransactionsParams = {
 user_id: number;
 limit?: number;
@@ -84,6 +97,10 @@ user_id: number;
 };
 
 export type GetMonthlySummaryParams = {
+user_id: number;
+};
+
+export type GetLimitsParams = {
 user_id: number;
 };
 

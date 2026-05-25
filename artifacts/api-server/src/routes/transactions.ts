@@ -8,6 +8,9 @@ import {
   GetBalanceQueryParams,
   GetCategorySummaryQueryParams,
   GetMonthlySummaryQueryParams,
+  GetLimitsQueryParams,
+  SetLimitBody,
+  DeleteLimitParams,
 } from "@workspace/api-zod";
 
 const DB_PATH = path.resolve(process.cwd(), "../../bot/finance.db");
@@ -23,6 +26,13 @@ function getDb() {
     note TEXT,
     created_at DATETIME DEFAULT (datetime('now','localtime'))
   )`);
+  db.exec(`CREATE TABLE IF NOT EXISTS limits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    monthly_limit REAL NOT NULL,
+    UNIQUE(user_id, category)
+  )`);
   return db;
 }
 
@@ -37,9 +47,7 @@ router.get("/transactions", (req, res) => {
   const { user_id, limit = 50 } = parsed.data;
   const db = getDb();
   const rows = db
-    .prepare(
-      "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
-    )
+    .prepare("SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?")
     .all(user_id, limit);
   db.close();
   res.json(rows);
@@ -54,13 +62,9 @@ router.post("/transactions", (req, res) => {
   const { user_id, type, amount, category, note = "" } = parsed.data;
   const db = getDb();
   const result = db
-    .prepare(
-      "INSERT INTO transactions (user_id, type, amount, category, note) VALUES (?, ?, ?, ?, ?)"
-    )
+    .prepare("INSERT INTO transactions (user_id, type, amount, category, note) VALUES (?, ?, ?, ?, ?)")
     .run(user_id, type, amount, category, note);
-  const row = db
-    .prepare("SELECT * FROM transactions WHERE id = ?")
-    .get(result.lastInsertRowid);
+  const row = db.prepare("SELECT * FROM transactions WHERE id = ?").get(result.lastInsertRowid);
   db.close();
   res.status(201).json(row);
 });
@@ -72,9 +76,7 @@ router.delete("/transactions/:id", (req, res) => {
     return;
   }
   const db = getDb();
-  const result = db
-    .prepare("DELETE FROM transactions WHERE id = ?")
-    .run(parsed.data.id);
+  const result = db.prepare("DELETE FROM transactions WHERE id = ?").run(parsed.data.id);
   db.close();
   res.json({ success: result.changes > 0 });
 });
@@ -148,11 +150,55 @@ router.get("/summary/monthly", (req, res) => {
     )
     .get(user_id) as { income: number; expense: number };
   db.close();
-  res.json({
-    income: row.income,
-    expense: row.expense,
-    net: row.income - row.expense,
-  });
+  res.json({ income: row.income, expense: row.expense, net: row.income - row.expense });
+});
+
+// ── Limits ──────────────────────────────────────────────────────────────────
+
+router.get("/limits", (req, res) => {
+  const parsed = GetLimitsQueryParams.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "user_id required" });
+    return;
+  }
+  const { user_id } = parsed.data;
+  const db = getDb();
+  const rows = db
+    .prepare("SELECT id, user_id, category, monthly_limit FROM limits WHERE user_id = ? ORDER BY category")
+    .all(user_id);
+  db.close();
+  res.json(rows);
+});
+
+router.post("/limits", (req, res) => {
+  const parsed = SetLimitBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const { user_id, category, monthly_limit } = parsed.data;
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO limits (user_id, category, monthly_limit) VALUES (?, ?, ?)
+     ON CONFLICT(user_id, category) DO UPDATE SET monthly_limit = excluded.monthly_limit`
+  ).run(user_id, category, monthly_limit);
+  const row = db
+    .prepare("SELECT id, user_id, category, monthly_limit FROM limits WHERE user_id = ? AND category = ?")
+    .get(user_id, category);
+  db.close();
+  res.json(row);
+});
+
+router.delete("/limits/:id", (req, res) => {
+  const parsed = DeleteLimitParams.safeParse({ id: Number(req.params.id) });
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid id" });
+    return;
+  }
+  const db = getDb();
+  const result = db.prepare("DELETE FROM limits WHERE id = ?").run(parsed.data.id);
+  db.close();
+  res.json({ success: result.changes > 0 });
 });
 
 export default router;

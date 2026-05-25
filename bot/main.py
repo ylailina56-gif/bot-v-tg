@@ -1,11 +1,17 @@
 import os
+import re
 import telebot
 from telebot.types import (
     ReplyKeyboardMarkup, KeyboardButton,
     InlineKeyboardMarkup, InlineKeyboardButton,
     WebAppInfo,
 )
-from db import init_db, add_transaction, get_balance, get_history, get_categories_summary, delete_last, get_monthly_summary
+from apscheduler.schedulers.background import BackgroundScheduler
+from db import (
+    init_db, add_transaction, get_balance, get_history,
+    get_categories_summary, delete_last, get_monthly_summary,
+    save_user, set_reminder, get_reminder, get_all_reminder_users,
+)
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
@@ -30,10 +36,15 @@ HELP_TEXT = """
 /month — сводка за текущий месяц
 /categories — расходы по категориям
 
+*Напоминания:*
+/remind 21:00 — напоминание каждый день в 21:00
+/remind off — отключить напоминание
+
 *Управление:*
 /undo — удалить последнюю запись
 /help — эта справка
 """
+
 
 def main_keyboard():
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -57,16 +68,31 @@ def app_inline_button():
     return kb
 
 
+def send_daily_reminder():
+    """Runs every minute; sends reminders to users whose time matches now."""
+    import datetime
+    now = datetime.datetime.now()
+    users = get_all_reminder_users(now.hour, now.minute)
+    for u in users:
+        try:
+            bot.send_message(
+                u["chat_id"],
+                "🔔 *Напоминание!*\n\nНе забудь записать расходы и доходы за сегодня.\nИспользуй /add или открой Mini App 📱",
+                parse_mode="Markdown",
+                reply_markup=app_inline_button()
+            )
+        except Exception:
+            pass
+
+
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
     init_db()
+    save_user(message.from_user.id, message.chat.id)
     name = message.from_user.first_name or "друг"
-
     miniapp_url = f"https://{os.environ.get('REPLIT_DOMAINS', '').split(',')[0]}/miniapp/"
-
     inline_kb = InlineKeyboardMarkup()
     inline_kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=miniapp_url)))
-
     bot.send_message(
         message.chat.id,
         f"Привет, {name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}",
@@ -94,8 +120,45 @@ def cmd_app(message):
         bot.send_message(message.chat.id, "Mini App недоступен в данный момент.")
 
 
+@bot.message_handler(commands=["remind"])
+def cmd_remind(message):
+    save_user(message.from_user.id, message.chat.id)
+    parts = message.text.strip().split(maxsplit=1)
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if arg.lower() == "off":
+        set_reminder(message.from_user.id, None, None)
+        bot.send_message(message.chat.id, "🔕 Напоминания отключены.", reply_markup=main_keyboard())
+        return
+
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", arg)
+    if not match:
+        bot.send_message(
+            message.chat.id,
+            "❌ Неверный формат.\n\n"
+            "Примеры:\n`/remind 21:00` — напоминание в 21:00\n`/remind off` — отключить",
+            parse_mode="Markdown"
+        )
+        return
+
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        bot.send_message(message.chat.id, "❌ Некорректное время. Укажи часы 0–23, минуты 0–59.")
+        return
+
+    set_reminder(message.from_user.id, hour, minute)
+    bot.send_message(
+        message.chat.id,
+        f"✅ Напоминание установлено на *{hour:02d}:{minute:02d}* каждый день.\n"
+        f"Чтобы отключить: `/remind off`",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+
+
 @bot.message_handler(commands=["add"])
 def cmd_add(message):
+    save_user(message.from_user.id, message.chat.id)
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
         bot.send_message(
@@ -260,7 +323,13 @@ def fallback(message):
 
 if __name__ == "__main__":
     init_db()
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(send_daily_reminder, "cron", minute="*")
+    scheduler.start()
     print("Бот запущен ✅")
     if MINIAPP_URL:
         print(f"Mini App URL: {MINIAPP_URL}")
-    bot.infinity_polling()
+    try:
+        bot.infinity_polling()
+    finally:
+        scheduler.shutdown()

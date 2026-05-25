@@ -24,13 +24,13 @@ export default function AddTransaction() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      toast({ title: "Invalid amount", variant: "destructive" });
+      toast({ title: "Введите корректную сумму", variant: "destructive" });
       return;
     }
     if (!category.trim()) {
-      toast({ title: "Category required", variant: "destructive" });
+      toast({ title: "Укажите категорию", variant: "destructive" });
       return;
     }
 
@@ -50,22 +50,21 @@ export default function AddTransaction() {
           queryClient.invalidateQueries({ queryKey: getGetMonthlySummaryQueryKey({ user_id: userId }) });
           queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey({ user_id: userId }) });
           queryClient.invalidateQueries({ queryKey: getGetCategorySummaryQueryKey({ user_id: userId }) });
-          
-          toast({ title: "Transaction added successfully" });
+          toast({ title: "Запись добавлена" });
           setLocation("/");
         },
         onError: () => {
-          toast({ title: "Failed to add transaction", variant: "destructive" });
+          toast({ title: "Ошибка при сохранении", variant: "destructive" });
         }
       }
     );
   };
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="p-4 space-y-6 pb-24">
       <header className="py-2">
-        <h1 className="text-xl font-bold tracking-tight">Add Transaction</h1>
-        <p className="text-sm text-muted-foreground">Record a new income or expense</p>
+        <h1 className="text-xl font-bold tracking-tight">Новая запись</h1>
+        <p className="text-sm text-muted-foreground">Добавьте доход или расход</p>
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -75,32 +74,32 @@ export default function AddTransaction() {
             type="button"
             onClick={() => setType("expense")}
             className={`flex-1 py-2.5 px-4 text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-all ${
-              type === "expense" 
-                ? "bg-background text-foreground shadow-sm" 
+              type === "expense"
+                ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <ArrowUpIcon className={`w-4 h-4 ${type === 'expense' ? 'text-rose-500' : ''}`} />
-            Expense
+            Расход
           </button>
           <button
             type="button"
             onClick={() => setType("income")}
             className={`flex-1 py-2.5 px-4 text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-all ${
-              type === "income" 
-                ? "bg-background text-foreground shadow-sm" 
+              type === "income"
+                ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <ArrowDownIcon className={`w-4 h-4 ${type === 'income' ? 'text-emerald-500' : ''}`} />
-            Income
+            Доход
           </button>
         </div>
 
         <Card className="border-none shadow-sm bg-card">
           <CardContent className="p-5 space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="amount" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Amount</Label>
+              <Label htmlFor="amount" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Сумма</Label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-semibold">
                   ₽
@@ -120,11 +119,11 @@ export default function AddTransaction() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="category" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Category</Label>
+              <Label htmlFor="category" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Категория</Label>
               <Input
                 id="category"
                 type="text"
-                placeholder={type === 'expense' ? 'e.g. Groceries, Transport' : 'e.g. Salary, Freelance'}
+                placeholder={type === 'expense' ? 'Еда, Транспорт, ЖКХ...' : 'Зарплата, Фриланс...'}
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
                 className="h-12"
@@ -132,11 +131,11 @@ export default function AddTransaction() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="note" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Note (Optional)</Label>
+              <Label htmlFor="note" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Заметка (необязательно)</Label>
               <Input
                 id="note"
                 type="text"
-                placeholder="Details about this transaction"
+                placeholder="Уточнение к записи"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="h-12"
@@ -145,15 +144,15 @@ export default function AddTransaction() {
           </CardContent>
         </Card>
 
-        <Button 
-          type="submit" 
+        <Button
+          type="submit"
           className="w-full h-14 text-base font-semibold rounded-xl"
           disabled={createTx.isPending}
         >
           {createTx.isPending ? (
             <Loader2 className="w-5 h-5 animate-spin mr-2" />
           ) : null}
-          Save Transaction
+          Сохранить
         </Button>
       </form>
     </div>

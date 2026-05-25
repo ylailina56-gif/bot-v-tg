@@ -3,11 +3,12 @@ import { Switch, Route, Router as WouterRouter, Link, useLocation } from "wouter
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Home as HomeIcon, PlusCircle, PieChart } from "lucide-react";
+import { Home as HomeIcon, PlusCircle, PieChart, Gauge } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import AddTransaction from "@/pages/add-transaction";
 import Categories from "@/pages/categories";
+import Limits from "@/pages/limits";
 
 declare global {
   interface Window {
@@ -55,22 +56,41 @@ function Layout({ children }: { children: ReactNode }) {
       <main className="flex-1 overflow-y-auto pb-20 no-scrollbar">
         {children}
       </main>
-      
+
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-card border-t border-border z-50">
         <div className="flex items-center justify-around p-2">
-          <Link href="/" className={`flex flex-col items-center p-2 rounded-lg min-w-[64px] transition-colors ${location === '/' ? 'text-primary' : 'text-muted-foreground'}`}>
-            <HomeIcon className="w-6 h-6 mb-1" />
-            <span className="text-[10px] font-medium">Home</span>
+          <Link
+            href="/"
+            className={`flex flex-col items-center p-2 rounded-lg min-w-[56px] transition-colors ${location === '/' ? 'text-primary' : 'text-muted-foreground'}`}
+          >
+            <HomeIcon className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Обзор</span>
           </Link>
-          
-          <Link href="/add" className="flex flex-col items-center justify-center -mt-6 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 w-14 h-14 border-4 border-background transition-transform active:scale-95">
-            <PlusCircle className="w-8 h-8" />
+
+          <Link
+            href="/categories"
+            className={`flex flex-col items-center p-2 rounded-lg min-w-[56px] transition-colors ${location === '/categories' ? 'text-primary' : 'text-muted-foreground'}`}
+          >
+            <PieChart className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Статистика</span>
           </Link>
-          
-          <Link href="/categories" className={`flex flex-col items-center p-2 rounded-lg min-w-[64px] transition-colors ${location === '/categories' ? 'text-primary' : 'text-muted-foreground'}`}>
-            <PieChart className="w-6 h-6 mb-1" />
-            <span className="text-[10px] font-medium">Stats</span>
+
+          <Link
+            href="/add"
+            className="flex flex-col items-center justify-center -mt-5 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 w-13 h-13 w-[52px] h-[52px] border-4 border-background transition-transform active:scale-95"
+          >
+            <PlusCircle className="w-7 h-7" />
           </Link>
+
+          <Link
+            href="/limits"
+            className={`flex flex-col items-center p-2 rounded-lg min-w-[56px] transition-colors ${location === '/limits' ? 'text-primary' : 'text-muted-foreground'}`}
+          >
+            <Gauge className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">Лимиты</span>
+          </Link>
+
+          <div className="min-w-[56px]" />
         </div>
       </nav>
     </div>
@@ -84,6 +104,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/add" component={AddTransaction} />
         <Route path="/categories" component={Categories} />
+        <Route path="/limits" component={Limits} />
         <Route component={NotFound} />
       </Switch>
     </Layout>
@@ -94,7 +115,6 @@ function App() {
   const [userId, setUserId] = useState<number>(1234567);
 
   useEffect(() => {
-    // Initialize Telegram Web App
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready();
       const tgUserId = window.Telegram.WebApp.initDataUnsafe?.user?.id;

@@ -23,6 +23,23 @@ def init_db():
             created_at DATETIME DEFAULT (datetime('now', 'localtime'))
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            chat_id INTEGER NOT NULL,
+            remind_hour INTEGER,
+            remind_minute INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            monthly_limit REAL NOT NULL,
+            UNIQUE(user_id, category)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -102,3 +119,78 @@ def get_monthly_summary(user_id: int):
     ).fetchone()
     conn.close()
     return row
+
+
+# ── Users / reminders ──────────────────────────────────────────────────────
+
+def save_user(user_id: int, chat_id: int):
+    conn = get_conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO users (user_id, chat_id) VALUES (?, ?)",
+        (user_id, chat_id)
+    )
+    conn.execute("UPDATE users SET chat_id = ? WHERE user_id = ?", (chat_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def set_reminder(user_id: int, hour: int, minute: int):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE users SET remind_hour = ?, remind_minute = ? WHERE user_id = ?",
+        (hour, minute, user_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_reminder(user_id: int):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT remind_hour, remind_minute FROM users WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def get_all_reminder_users(hour: int, minute: int):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT chat_id, user_id FROM users WHERE remind_hour = ? AND remind_minute = ?",
+        (hour, minute)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+# ── Limits ─────────────────────────────────────────────────────────────────
+
+def set_limit(user_id: int, category: str, monthly_limit: float):
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO limits (user_id, category, monthly_limit) VALUES (?, ?, ?)
+           ON CONFLICT(user_id, category) DO UPDATE SET monthly_limit = excluded.monthly_limit""",
+        (user_id, category, monthly_limit)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_limits(user_id: int):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, category, monthly_limit FROM limits WHERE user_id = ? ORDER BY category",
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def delete_limit(limit_id: int, user_id: int) -> bool:
+    conn = get_conn()
+    result = conn.execute(
+        "DELETE FROM limits WHERE id = ? AND user_id = ?", (limit_id, user_id)
+    )
+    conn.commit()
+    conn.close()
+    return result.rowcount > 0
