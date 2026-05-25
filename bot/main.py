@@ -111,7 +111,20 @@ def handle_menu(message):
         bot.send_message(message.chat.id, summary, parse_mode="Markdown")
     else:
         bot.send_message(message.chat.id, "Используй кнопки меню или команды.")
+@app.route('/api/add', methods=['POST'])
+def api_add_transaction():
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        t_type = data.get('type', 'расход').lower()
+        amount = float(data.get('amount', 0))
+        category = data.get('category', 'Разное')
 
+        # Записываем в нашу базу данных
+        add_transaction(user_id, t_type, amount, category)
+        return {"status": "success"}, 200
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 400
 if __name__ == "__main__":
     init_db()
     # Запускаем бота в фоновом потоке, чтобы он не вешал Flask
