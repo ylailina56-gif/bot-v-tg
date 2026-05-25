@@ -1,6 +1,10 @@
 import os
 import telebot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import (
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    WebAppInfo,
+)
 from db import init_db, add_transaction, get_balance, get_history, get_categories_summary, delete_last, get_monthly_summary
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -8,6 +12,9 @@ if not TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN не задан в переменных окружения")
 
 bot = telebot.TeleBot(TOKEN)
+
+REPLIT_DOMAINS = os.environ.get("REPLIT_DOMAINS", "")
+MINIAPP_URL = f"https://{REPLIT_DOMAINS.split(',')[0]}/miniapp/" if REPLIT_DOMAINS else ""
 
 HELP_TEXT = """
 💰 *Бот учёта финансов*
@@ -30,12 +37,23 @@ HELP_TEXT = """
 
 def main_keyboard():
     kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    kb.add(
+    buttons = [
         KeyboardButton("💳 Баланс"),
         KeyboardButton("📋 История"),
         KeyboardButton("📊 Категории"),
         KeyboardButton("📅 Месяц"),
-    )
+    ]
+    if MINIAPP_URL:
+        buttons.append(KeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=MINIAPP_URL)))
+    kb.add(*buttons)
+    return kb
+
+
+def app_inline_button():
+    if not MINIAPP_URL:
+        return None
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
     return kb
 
 
@@ -43,17 +61,33 @@ def main_keyboard():
 def cmd_start(message):
     init_db()
     name = message.from_user.first_name or "друг"
+    kb = app_inline_button()
     bot.send_message(
         message.chat.id,
         f"Привет, {name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}",
         parse_mode="Markdown",
         reply_markup=main_keyboard()
     )
+    if kb:
+        bot.send_message(
+            message.chat.id,
+            "Также доступен визуальный интерфейс:",
+            reply_markup=kb
+        )
 
 
 @bot.message_handler(commands=["help"])
 def cmd_help(message):
     bot.send_message(message.chat.id, HELP_TEXT, parse_mode="Markdown", reply_markup=main_keyboard())
+
+
+@bot.message_handler(commands=["app"])
+def cmd_app(message):
+    kb = app_inline_button()
+    if kb:
+        bot.send_message(message.chat.id, "Открыть визуальный интерфейс:", reply_markup=kb)
+    else:
+        bot.send_message(message.chat.id, "Mini App недоступен в данный момент.")
 
 
 @bot.message_handler(commands=["add"])
@@ -223,4 +257,6 @@ def fallback(message):
 if __name__ == "__main__":
     init_db()
     print("Бот запущен ✅")
+    if MINIAPP_URL:
+        print(f"Mini App URL: {MINIAPP_URL}")
     bot.infinity_polling()

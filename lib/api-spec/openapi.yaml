@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: API specification for Finance Mini App
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: transactions
+    description: Finance transaction operations
+  - name: summary
+    description: Summary and analytics
 paths:
   /healthz:
     get:
@@ -24,6 +28,126 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List transactions
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+    post:
+      operationId: createTransaction
+      tags: [transactions]
+      summary: Add a transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /transactions/{id}:
+    delete:
+      operationId: deleteTransaction
+      tags: [transactions]
+      summary: Delete a transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
+  /summary/balance:
+    get:
+      operationId: getBalance
+      tags: [summary]
+      summary: Get current balance
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Balance info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceSummary"
+
+  /summary/categories:
+    get:
+      operationId: getCategorySummary
+      tags: [summary]
+      summary: Get spending by category
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Category breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategorySummary"
+
+  /summary/monthly:
+    get:
+      operationId: getMonthlySummary
+      tags: [summary]
+      summary: Monthly income vs expense summary
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Monthly summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonthlySummary"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +158,89 @@ components:
       required:
         - status
 
+    Transaction:
+      type: object
+      required: [id, user_id, type, amount, category, created_at]
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: integer
+        type:
+          type: string
+          enum: [income, expense]
+        amount:
+          type: number
+        category:
+          type: string
+        note:
+          type: ["string", "null"]
+        created_at:
+          type: string
+
+    TransactionInput:
+      type: object
+      required: [user_id, type, amount, category]
+      properties:
+        user_id:
+          type: integer
+        type:
+          type: string
+          enum: [income, expense]
+        amount:
+          type: number
+        category:
+          type: string
+        note:
+          type: string
+
+    DeleteResult:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+
+    BalanceSummary:
+      type: object
+      required: [balance, total_income, total_expense]
+      properties:
+        balance:
+          type: number
+        total_income:
+          type: number
+        total_expense:
+          type: number
+
+    CategorySummary:
+      type: object
+      required: [expenses, incomes]
+      properties:
+        expenses:
+          type: array
+          items:
+            $ref: "#/components/schemas/CategoryItem"
+        incomes:
+          type: array
+          items:
+            $ref: "#/components/schemas/CategoryItem"
+
+    CategoryItem:
+      type: object
+      required: [category, total]
+      properties:
+        category:
+          type: string
+        total:
+          type: number
+
+    MonthlySummary:
+      type: object
+      required: [income, expense, net]
+      properties:
+        income:
+          type: number
+        expense:
+          type: number
+        net:
+          type: number
