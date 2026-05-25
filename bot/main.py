@@ -17,7 +17,7 @@ from db import (
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN не задан в переменных окружения")
+    raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
@@ -32,7 +32,7 @@ HELP_TEXT = """
 *Добавить транзакцию:*
 `/add доход 5000 Зарплата`
 `/add расход 350 Еда`
-`/add расход 1200 Траспорт заправка`
+`/add расход 1200 Транспорт заправка`
 
 *Просмотр данных:*
 /balance — текущий баланс
@@ -69,10 +69,29 @@ def app_inline_button():
     kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
     return kb
 
-# Раздача Mini App
+BOT_RUNNING = False
+
+def start_bot_if_needed():
+    global BOT_RUNNING
+    if not BOT_RUNNING:
+        BOT_RUNNING = True
+        def run():
+            while True:
+                try:
+                    bot.remove_webhook()
+                    print("Запуск автономного пуллинга бота...")
+                    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+                except Exception as e:
+                    print(f"Ошибка пуллинга, рестарт через 5 сек: {e}")
+                    time.sleep(5)
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+
+# Принудительный запуск бота при открытии приложухи
 @app.route('/miniapp/')
 @app.route('/miniapp/<path:path>')
 def serve_miniapp(path="index.html"):
+    start_bot_if_needed()
     base_dir = os.path.dirname(os.path.abspath(__file__))
     dist_dir = os.path.join(base_dir, 'dist')
     if not os.path.exists(dist_dir):
@@ -83,18 +102,8 @@ def serve_miniapp(path="index.html"):
 
 @app.route("/")
 def index():
-    return "Сервер активен, бот работает автономно! 🚀", 200
-
-# Фоновая функция, которая запустит бота в обход блокировок Replit
-def run_bot_polling():
-    while True:
-        try:
-            bot.remove_webhook()
-            print("Запуск бота в автономном режиме...")
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
-        except Exception as e:
-            print(f"Перезапуск бота после ошибки: {e}")
-            time.sleep(5)
+    start_bot_if_needed()
+    return "Бот успешно активирован и работает! 🚀", 200
 
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
@@ -134,7 +143,11 @@ def cmd_add(message):
     save_user(message.from_user.id, message.chat.id)
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
-        bot.send_message(message.chat.id, "❌ Неверный формат. Используй /add", parse_mode="Markdown")
+        bot.send_message(
+            message.chat.id,
+            "❌ Неверный формат. Примеры:\n` /add доход 5000 Зарплата`",
+            parse_mode="Markdown"
+        )
         return
 
     _, ttype_raw, amount_raw, rest = parts
@@ -142,7 +155,7 @@ def cmd_add(message):
     category = category_parts[0]
     note = category_parts[1] if len(category_parts) > 1 else ""
 
-    ttype_map = {"доход": "income", "расход": "expense"}
+    ttype_map = {"доход": "income", "приход": "income", "расход": "expense", "трата": "expense"}
     ttype = ttype_map.get(ttype_raw.lower())
     if not ttype:
         bot.send_message(message.chat.id, "❌ Тип должен быть: `доход` или `расход`")
@@ -156,7 +169,7 @@ def cmd_add(message):
 
     add_transaction(message.from_user.id, ttype, amount, category, note)
     balance = get_balance(message.from_user.id)
-    bot.send_message(message.chat.id, f"✅ Запись добавлена! Баланс: {balance:,.2f} ₽", reply_markup=main_keyboard())
+    bot.send_message(message.chat.id, f"✅ Запись добавлена! Текущий баланс: {balance:,.2f} ₽", reply_markup=main_keyboard())
 
 @bot.message_handler(commands=["balance"])
 @bot.message_handler(func=lambda m: m.text == "💳 Баланс")
@@ -170,11 +183,4 @@ def fallback(message):
 
 if __name__ == "__main__":
     init_db()
-
-    # Хитрый ход: запускаем бота в отдельном независимом потоке
-    bot_thread = threading.Thread(target=run_bot_polling, daemon=True)
-    bot_thread.start()
-
-    print("Автономный запуск завершен! ✅")
-    # Стартуем веб-сервер, который Replit обязан держать включенным
     app.run(host="0.0.0.0", port=8080)
