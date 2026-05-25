@@ -312,8 +312,17 @@ def fallback(message):
 
 if __name__ == "__main__":
     init_db()
-    # Запуск сервера Flask на порту 8080 (стандарт для Replit)
+
+    # Автоматически пинаем Телеграм и ставим вебхук при каждом запуске!
+    if APP_DOMAIN:
+        bot.remove_webhook()
+        bot.set_webhook(url=f"https://{APP_DOMAIN}/{TOKEN}")
+        print(f"✅ Вебхук автоматически установлен на https://{APP_DOMAIN}")
+    else:
+        print("❌ Не удалось поставить вебхук: нет APP_DOMAIN")
+
     print("Бот успешно переведён на Webhook! ✅")
     if MINIAPP_URL:
         print(f"Mini App URL: {MINIAPP_URL}")
+
     app.run(host="0.0.0.0", port=8080)
