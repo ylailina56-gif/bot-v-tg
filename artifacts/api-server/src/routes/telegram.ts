@@ -60,6 +60,7 @@ const HELP_TEXT = `
 /history — последние 10 операций
 /month — сводка за текущий месяц
 /categories — расходы по категориям
+/stats — диаграмма расходов за 7 дней 📊
 
 *Напоминания:*
 /remind 21:00 — напоминание каждый день в 21:00
@@ -293,6 +294,97 @@ async function handleUndo(chatId: number, userId: number) {
   }
 }
 
+async function handleStats(chatId: number, userId: number) {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT
+      date(created_at, 'localtime') as day,
+      category,
+      SUM(amount) as total
+    FROM transactions
+    WHERE user_id=? AND type='expense'
+      AND date(created_at, 'localtime') >= date('now', '-6 days', 'localtime')
+    GROUP BY day, category
+    ORDER BY day
+  `).all(userId) as Array<{ day: string; category: string; total: number }>;
+  db.close();
+
+  if (!rows.length) {
+    await reply(chatId, "📭 Нет расходов за последние 7 дней.", { reply_markup: mainKeyboard() });
+    return;
+  }
+
+  const days = [...new Set(rows.map(r => r.day))].sort();
+  const labels = days.map(d => d.slice(5).replace("-", "."));
+
+  const catTotals: Record<string, number> = {};
+  for (const r of rows) catTotals[r.category] = (catTotals[r.category] || 0) + r.total;
+
+  const topCats = Object.entries(catTotals).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
+  const otherCats = Object.keys(catTotals).filter(c => !topCats.includes(c));
+  const COLORS = ["#4F8EF7", "#FF6B6B", "#4CAF50", "#FF9800", "#9C27B0", "#78909C"];
+
+  const datasets = topCats.map((cat, i) => ({
+    label: cat,
+    backgroundColor: COLORS[i],
+    data: days.map(day => {
+      const r = rows.find(r => r.day === day && r.category === cat);
+      return r ? Math.round(r.total) : 0;
+    }),
+  }));
+
+  if (otherCats.length) {
+    datasets.push({
+      label: "Другие",
+      backgroundColor: COLORS[5],
+      data: days.map(day =>
+        Math.round(rows.filter(r => r.day === day && otherCats.includes(r.category)).reduce((s, r) => s + r.total, 0))
+      ),
+    });
+  }
+
+  const chartConfig = {
+    type: "bar",
+    data: { labels, datasets },
+    options: {
+      plugins: {
+        title: { display: true, text: "Расходы за 7 дней (₽)", font: { size: 16 } },
+        legend: { position: "bottom" },
+      },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true },
+      },
+    },
+  };
+
+  const totalExp = rows.reduce((s, r) => s + r.total, 0);
+  const caption = `📊 *Расходы за 7 дней*\n\n${
+    Object.entries(catTotals).sort((a, b) => b[1] - a[1])
+      .map(([cat, total]) => `• ${cat}: ${fmt(total)} ₽`).join("\n")
+  }\n\n💸 *Итого: ${fmt(totalExp)} ₽*`;
+
+  try {
+    const qcRes = await fetch("https://quickchart.io/chart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chart: chartConfig, width: 600, height: 400, format: "png", backgroundColor: "white" }),
+    });
+    if (!qcRes.ok) throw new Error("QuickChart error");
+
+    const imgBytes = Buffer.from(await qcRes.arrayBuffer());
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    form.append("caption", caption);
+    form.append("parse_mode", "Markdown");
+    form.append("photo", new Blob([imgBytes], { type: "image/png" }), "stats.png");
+
+    await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, { method: "POST", body: form });
+  } catch (_) {
+    await reply(chatId, caption, { reply_markup: mainKeyboard() });
+  }
+}
+
 // ── Router ───────────────────────────────────────────────────────────────────
 
 const router = Router();
@@ -318,6 +410,7 @@ router.post("/telegram", async (req, res) => {
     if (text.startsWith("/month") || text === "📅 Месяц") { await handleMonth(chatId, userId); return; }
     if (text.startsWith("/remind")) { await handleRemind(chatId, userId, text); return; }
     if (text.startsWith("/undo")) { await handleUndo(chatId, userId); return; }
+    if (text.startsWith("/stats")) { await handleStats(chatId, userId); return; }
     if (text.startsWith("/app")) {
       const kb = appInlineKeyboard();
       if (kb) await reply(chatId, "Открыть визуальный интерфейс:", { reply_markup: kb });

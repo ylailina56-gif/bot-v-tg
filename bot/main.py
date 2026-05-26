@@ -35,6 +35,7 @@ HELP_TEXT = """
 /history — последние 10 операций
 /month — сводка за текущий месяц
 /categories — расходы по категориям
+/stats — диаграмма расходов за 7 дней 📊
 
 *Напоминания:*
 /remind 21:00 — напоминание каждый день в 21:00
@@ -310,6 +311,75 @@ def cmd_undo(message):
         )
     else:
         bot.send_message(message.chat.id, "❌ Нет записей для удаления", reply_markup=main_keyboard())
+
+
+@bot.message_handler(commands=["stats"])
+def cmd_stats(message):
+    import sqlite3, json, urllib.request, urllib.error
+    db_path = os.path.join(os.path.dirname(__file__), "finance.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT date(created_at,'localtime') as day, category, SUM(amount) as total
+        FROM transactions
+        WHERE user_id=? AND type='expense'
+          AND date(created_at,'localtime') >= date('now','-6 days','localtime')
+        GROUP BY day, category ORDER BY day
+    """, (message.from_user.id,))
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    if not rows:
+        bot.send_message(message.chat.id, "📭 Нет расходов за последние 7 дней.", reply_markup=main_keyboard())
+        return
+
+    days = sorted(set(r["day"] for r in rows))
+    labels = [d[5:].replace("-", ".") for d in days]
+    cat_totals = {}
+    for r in rows:
+        cat_totals[r["category"]] = cat_totals.get(r["category"], 0) + r["total"]
+    top_cats = sorted(cat_totals, key=lambda c: cat_totals[c], reverse=True)[:5]
+    other_cats = [c for c in cat_totals if c not in top_cats]
+    colors = ["#4F8EF7", "#FF6B6B", "#4CAF50", "#FF9800", "#9C27B0", "#78909C"]
+
+    datasets = []
+    for i, cat in enumerate(top_cats):
+        datasets.append({
+            "label": cat,
+            "backgroundColor": colors[i],
+            "data": [round(next((r["total"] for r in rows if r["day"]==d and r["category"]==cat), 0)) for d in days],
+        })
+    if other_cats:
+        datasets.append({
+            "label": "Другие",
+            "backgroundColor": colors[5],
+            "data": [round(sum(r["total"] for r in rows if r["day"]==d and r["category"] in other_cats)) for d in days],
+        })
+
+    chart_cfg = {
+        "type": "bar",
+        "data": {"labels": labels, "datasets": datasets},
+        "options": {
+            "plugins": {"title": {"display": True, "text": "Расходы за 7 дней (₽)", "font": {"size": 16}}, "legend": {"position": "bottom"}},
+            "scales": {"x": {"stacked": True}, "y": {"stacked": True}},
+        },
+    }
+    total_exp = sum(r["total"] for r in rows)
+    caption = "📊 *Расходы за 7 дней*\n\n" + "\n".join(
+        f"• {c}: {cat_totals[c]:,.2f} ₽"
+        for c in sorted(cat_totals, key=lambda x: cat_totals[x], reverse=True)
+    ) + f"\n\n💸 *Итого: {total_exp:,.2f} ₽*"
+
+    try:
+        payload = json.dumps({"chart": chart_cfg, "width": 600, "height": 400, "format": "png", "backgroundColor": "white"}).encode()
+        req = urllib.request.Request("https://quickchart.io/chart", data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            img_bytes = resp.read()
+        import io
+        bot.send_photo(message.chat.id, io.BytesIO(img_bytes), caption=caption, parse_mode="Markdown", reply_markup=main_keyboard())
+    except Exception:
+        bot.send_message(message.chat.id, caption, parse_mode="Markdown", reply_markup=main_keyboard())
 
 
 @bot.message_handler(func=lambda m: True)
