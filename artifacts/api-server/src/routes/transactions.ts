@@ -1,6 +1,7 @@
 import { Router } from "express";
 import Database from "better-sqlite3";
 import path from "path";
+import { mkdirSync } from "fs";
 import {
   ListTransactionsQueryParams,
   CreateTransactionBody,
@@ -13,7 +14,12 @@ import {
   DeleteLimitParams,
 } from "@workspace/api-zod";
 
-const DB_PATH = path.resolve(process.cwd(), "../../bot/finance.db");
+// In production cwd = workspace root; in dev cwd = artifacts/api-server
+const WS_ROOT = process.cwd().includes("api-server")
+  ? path.resolve(process.cwd(), "../..")
+  : process.cwd();
+const DB_PATH = path.resolve(WS_ROOT, "bot/finance.db");
+mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 function getDb() {
   const db = new Database(DB_PATH);

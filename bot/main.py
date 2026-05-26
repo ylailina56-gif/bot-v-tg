@@ -1,167 +1,381 @@
-    import os
-    import telebot
-    import threading
-    import time
-    from flask import Flask, request, send_from_directory
-    from telebot.types import (
-        ReplyKeyboardMarkup, KeyboardButton,
-        InlineKeyboardMarkup, InlineKeyboardButton,
-        WebAppInfo,
-    )
-    from db import (
-        init_db, add_transaction, get_balance, get_history,
-        get_categories_summary, delete_last, get_monthly_summary,
-        save_user, set_reminder, get_reminder, get_all_reminder_users,
-    )
+import os
+import re
+import telebot
+from telebot.types import (
+    ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    WebAppInfo,
+)
+from db import (
+    init_db, add_transaction, get_balance, get_history,
+    get_categories_summary, delete_last, get_monthly_summary,
+    save_user, set_reminder, get_reminder, get_all_reminder_users,
+)
 
-    # Твой рабочий токен
-    TOKEN = "8703775745:AAGt78MkW2dcBDm5AskVfNCEjctQ63H-Xmc"
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN не задан в переменных окружения")
 
-    bot = telebot.TeleBot(TOKEN)
-    app = Flask(__name__)
+bot = telebot.TeleBot(TOKEN)
 
-    REPLIT_DOMAINS = os.environ.get("REPLIT_DOMAINS", "")
-    APP_DOMAIN = REPLIT_DOMAINS.split(',')[0] if REPLIT_DOMAINS else ""
-    MINIAPP_URL = f"https://{APP_DOMAIN}/miniapp/" if APP_DOMAIN else ""
+REPLIT_DOMAINS = os.environ.get("REPLIT_DOMAINS", "")
+PRIMARY_DOMAIN = REPLIT_DOMAINS.split(",")[0] if REPLIT_DOMAINS else ""
+MINIAPP_URL = f"https://{PRIMARY_DOMAIN}/miniapp/" if PRIMARY_DOMAIN else ""
 
-    HELP_TEXT = """
-    💰 *Бот учёта финансов*
+HELP_TEXT = """
+💰 *Бот учёта финансов*
 
-    *Добавить транзакцию:*
-    `/add доход 5000 Зарплата`
-    `/add расход 350 Еда`
-    `/add расход 1200 Транспорт заправка`
+*Добавить транзакцию:*
+`/add доход 5000 Зарплата`
+`/add расход 350 Еда`
+`/add расход 1200 Транспорт заправка`
 
-    *Просмотр данных:*
-    /balance — текущий баланс
-    /history — последние 10 операций
-    /month — сводка за текущий месяц
-    /categories — расходы по категориям
+*Просмотр данных:*
+/balance — текущий баланс
+/history — последние 10 операций
+/month — сводка за текущий месяц
+/categories — расходы по категориям
 
-    *Напоминания:*
-    /remind 21:00 — напоминание каждый день в 21:00
-    /remind off — отключить напоминание
+*Напоминания:*
+/remind 21:00 — напоминание каждый день в 21:00
+/remind off — отключить напоминание
 
-    *Управление:*
-    /undo — удалить последнюю запись
-    /help — эта справка
-    """
+*Управление:*
+/undo — удалить последнюю запись
+/help — эта справка
+"""
 
-    # === КЛАВИАТУРА И МЕНЮ ===
-    def main_keyboard():
-        markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        btn1 = KeyboardButton("💳 Баланс")
-        btn2 = KeyboardButton("📋 История")
-        btn3 = KeyboardButton("📊 Категории")
-        btn4 = KeyboardButton("📅 Месяц")
-        markup.add(btn1, btn2, btn3, btn4)
 
-        if MINIAPP_URL:
-            web_app = WebAppInfo(MINIAPP_URL)
-            btn_app = KeyboardButton("📱 Открыть Mini App", web_app=web_app)
-            markup.add(btn_app)
-        return markup
+def main_keyboard():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    buttons = [
+        KeyboardButton("💳 Баланс"),
+        KeyboardButton("📋 История"),
+        KeyboardButton("📊 Категории"),
+        KeyboardButton("📅 Месяц"),
+    ]
+    if MINIAPP_URL:
+        buttons.append(KeyboardButton("📱 Открыть приложение", web_app=WebAppInfo(url=MINIAPP_URL)))
+    kb.add(*buttons)
+    return kb
 
-    # === КОМАНДЫ БОТА ===
-    @bot.message_handler(commands=["start", "help"])
-    def cmd_start(message):
-        save_user(message.from_user.id, message.from_user.username)
-        welcome = f"Привет, Юля! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}"
-        bot.send_message(message.chat.id, welcome, parse_mode="Markdown", reply_markup=main_keyboard())
 
-    @bot.message_handler(commands=["add"])
-    def cmd_add(message):
+def app_inline_button():
+    if not MINIAPP_URL:
+        return None
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
+    return kb
+
+
+def send_daily_reminder():
+    """Runs every minute; sends reminders to users whose time matches now."""
+    import datetime
+    now = datetime.datetime.now()
+    users = get_all_reminder_users(now.hour, now.minute)
+    for u in users:
         try:
-            parts = message.text.split(maxsplit=3)
-            if len(parts) < 4:
-                bot.reply_to(message, "❌ Неверный формат! Используй:\n`/add расход 350 Еда`", parse_mode="Markdown")
-                return
-            t_type = parts[1].lower()
-            amount = float(parts[2])
-            category = parts[3]
+            bot.send_message(
+                u["chat_id"],
+                "🔔 *Напоминание!*\n\nНе забудь записать расходы и доходы за сегодня.\nИспользуй /add или открой Mini App 📱",
+                parse_mode="Markdown",
+                reply_markup=app_inline_button()
+            )
+        except Exception:
+            pass
 
-            if t_type not in ["доход", "расход"]:
-                bot.reply_to(message, "❌ Укажи `доход` или `расход`.")
-                return
 
-            add_transaction(message.from_user.id, t_type, amount, category)
-            bot.reply_to(message, f"✅ Записано: {t_type} {amount} руб. в '{category}'")
-        except:
-            bot.reply_to(message, "❌ Ошибка добавления. Сумма должна быть числом.")
+@bot.message_handler(commands=["start"])
+def cmd_start(message):
+    save_user(message.from_user.id, message.chat.id)
+    name = message.from_user.first_name or "друг"
+    inline_kb = InlineKeyboardMarkup()
+    if MINIAPP_URL:
+        inline_kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
+    bot.send_message(
+        message.chat.id,
+        f"Привет, {name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+    if MINIAPP_URL:
+        bot.send_message(
+            message.chat.id,
+            "Нажми кнопку ниже, чтобы открыть визуальный интерфейс:",
+            reply_markup=inline_kb
+        )
 
-    @bot.message_handler(commands=["undo"])
-    def cmd_undo(message):
-        if delete_last(message.from_user.id):
-            bot.send_message(message.chat.id, "🗑 Последняя запись успешно удалена!")
-        else:
-            bot.send_message(message.chat.id, "В базе данных пока нет ваших записей.")
 
-    # === БЛОК НАПОМИНАНИЙ (КОТОРЫЙ Я ВЫРЕЗАЛА) ===
-    @bot.message_handler(commands=["remind"])
-    def cmd_remind(message):
-        args = message.text.split()
-        if len(args) == 2 and args[1].lower() == "off":
-            set_reminder(message.from_user.id, None)
-            bot.reply_to(message, "🔕 Напоминания отключены.")
-        elif len(args) == 2:
-            remind_time = args[1]
-            set_reminder(message.from_user.id, remind_time)
-            bot.reply_to(message, f"⏰ Напоминание установлено на {remind_time}.")
-        else:
-            bot.reply_to(message, "Используй формат: `/remind 21:00` или `/remind off`")
+@bot.message_handler(commands=["help"])
+def cmd_help(message):
+    bot.send_message(message.chat.id, HELP_TEXT, parse_mode="Markdown", reply_markup=main_keyboard())
 
-    def reminder_worker():
-        while True:
-            try:
-                users = get_all_reminder_users()
-                current_time = time.strftime("%H:%M")
-                for user in users:
-                    user_id, rem_time = user[0], user[1]
-                    if rem_time == current_time:
-                        bot.send_message(user_id, "⏰ Не забудьте внести свои расходы за сегодня!")
-            except Exception:
-                pass
-            time.sleep(60)
 
-    # === ОБРАБОТКА КНОПОК ===
-    @bot.message_handler(func=lambda m: True)
-    def handle_menu(message):
-        user_id = message.from_user.id
-        if message.text == "💳 Баланс" or message.text == "/balance":
-            balance = get_balance(user_id)
-            bot.send_message(message.chat.id, f"💳 *Текущий баланс:* {balance} руб.", parse_mode="Markdown")
-        elif message.text == "📋 История" or message.text == "/history":
-            history = get_history(user_id)
-            bot.send_message(message.chat.id, history, parse_mode="Markdown")
-        elif message.text == "📊 Категории" or message.text == "/categories":
-            summary = get_categories_summary(user_id)
-            bot.send_message(message.chat.id, summary, parse_mode="Markdown")
-        elif message.text == "📅 Месяц" or message.text == "/month":
-            summary = get_monthly_summary(user_id)
-            bot.send_message(message.chat.id, summary, parse_mode="Markdown")
-        else:
-            bot.send_message(message.chat.id, "Используй кнопки меню или команды.")
+@bot.message_handler(commands=["app"])
+def cmd_app(message):
+    kb = app_inline_button()
+    if kb:
+        bot.send_message(message.chat.id, "Открыть визуальный интерфейс:", reply_markup=kb)
+    else:
+        bot.send_message(message.chat.id, "Mini App недоступен в данный момент.")
 
-    # === МАРШРУТЫ ДЛЯ MINI APP (ЧТОБЫ РАБОТАЛ ВИЗУАЛ) ===
-    @app.route('/miniapp/')
-    def serve_miniapp():
-        return send_from_directory('miniapp', 'index.html')
 
-    @app.route('/miniapp/<path:path>')
-    def serve_miniapp_static(path):
-        return send_from_directory('miniapp', path)
+@bot.message_handler(commands=["remind"])
+def cmd_remind(message):
+    save_user(message.from_user.id, message.chat.id)
+    parts = message.text.strip().split(maxsplit=1)
+    arg = parts[1].strip() if len(parts) > 1 else ""
 
-    if __name__ == "__main__":
-        init_db()
-        bot.remove_webhook()
+    if arg.lower() == "off":
+        set_reminder(message.from_user.id, None, None)
+        bot.send_message(message.chat.id, "🔕 Напоминания отключены.", reply_markup=main_keyboard())
+        return
 
-        # Запуск потока для бота
-        t_bot = threading.Thread(target=lambda: bot.infinity_polling(timeout=10, long_polling_timeout=5), daemon=True)
-        t_bot.start()
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", arg)
+    if not match:
+        bot.send_message(
+            message.chat.id,
+            "❌ Неверный формат.\n\n"
+            "Примеры:\n`/remind 21:00` — напоминание в 21:00\n`/remind off` — отключить",
+            parse_mode="Markdown"
+        )
+        return
 
-        # Запуск потока для напоминаний
-        t_remind = threading.Thread(target=reminder_worker, daemon=True)
-        t_remind.start()
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        bot.send_message(message.chat.id, "❌ Некорректное время. Укажи часы 0–23, минуты 0–59.")
+        return
 
-        # Запуск сервера
-        app.run(host="0.0.0.0", port=8080)
+    set_reminder(message.from_user.id, hour, minute)
+    bot.send_message(
+        message.chat.id,
+        f"✅ Напоминание установлено на *{hour:02d}:{minute:02d}* каждый день.\n"
+        f"Чтобы отключить: `/remind off`",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+
+
+@bot.message_handler(commands=["add"])
+def cmd_add(message):
+    save_user(message.from_user.id, message.chat.id)
+    parts = message.text.split(maxsplit=3)
+    if len(parts) < 4:
+        bot.send_message(
+            message.chat.id,
+            "❌ Неверный формат. Примеры:\n"
+            "`/add доход 5000 Зарплата`\n"
+            "`/add расход 350 Еда`",
+            parse_mode="Markdown"
+        )
+        return
+
+    _, ttype_raw, amount_raw, rest = parts
+    category_parts = rest.split(maxsplit=1)
+    category = category_parts[0]
+    note = category_parts[1] if len(category_parts) > 1 else ""
+
+    ttype_map = {
+        "доход": "income", "income": "income", "приход": "income", "+": "income",
+        "расход": "expense", "expense": "expense", "трата": "expense", "-": "expense",
+    }
+    ttype = ttype_map.get(ttype_raw.lower())
+    if not ttype:
+        bot.send_message(message.chat.id, "❌ Тип должен быть: `доход` или `расход`", parse_mode="Markdown")
+        return
+
+    try:
+        amount = float(amount_raw.replace(",", "."))
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Сумма должна быть положительным числом")
+        return
+
+    add_transaction(message.from_user.id, ttype, amount, category, note)
+    balance = get_balance(message.from_user.id)
+
+    icon = "📈" if ttype == "income" else "📉"
+    label = "Доход" if ttype == "income" else "Расход"
+    bot.send_message(
+        message.chat.id,
+        f"{icon} *{label} записан*\n"
+        f"Сумма: *{amount:,.2f} ₽*\n"
+        f"Категория: {category}"
+        + (f"\nЗаметка: {note}" if note else "") +
+        f"\n\n💰 Текущий баланс: *{balance:,.2f} ₽*",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+
+
+@bot.message_handler(commands=["balance"])
+@bot.message_handler(func=lambda m: m.text == "💳 Баланс")
+def cmd_balance(message):
+    balance = get_balance(message.from_user.id)
+    month = get_monthly_summary(message.from_user.id)
+    income = month["income"] if month else 0
+    expense = month["expense"] if month else 0
+
+    emoji = "🟢" if balance >= 0 else "🔴"
+    bot.send_message(
+        message.chat.id,
+        f"{emoji} *Текущий баланс: {balance:,.2f} ₽*\n\n"
+        f"📅 *Этот месяц:*\n"
+        f"  📈 Доходы: {income:,.2f} ₽\n"
+        f"  📉 Расходы: {expense:,.2f} ₽",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+
+
+@bot.message_handler(commands=["history"])
+@bot.message_handler(func=lambda m: m.text == "📋 История")
+def cmd_history(message):
+    rows = get_history(message.from_user.id, limit=10)
+    if not rows:
+        bot.send_message(message.chat.id, "📭 Транзакций пока нет. Добавьте первую командой /add", reply_markup=main_keyboard())
+        return
+
+    lines = ["📋 *Последние операции:*\n"]
+    for r in rows:
+        icon = "📈" if r["type"] == "income" else "📉"
+        date = r["created_at"][:10]
+        note = f" — {r['note']}" if r["note"] else ""
+        lines.append(f"{icon} {date} | *{r['amount']:,.2f} ₽* | {r['category']}{note}")
+
+    bot.send_message(message.chat.id, "\n".join(lines), parse_mode="Markdown", reply_markup=main_keyboard())
+
+
+@bot.message_handler(commands=["categories"])
+@bot.message_handler(func=lambda m: m.text == "📊 Категории")
+def cmd_categories(message):
+    expenses = get_categories_summary(message.from_user.id, "expense")
+    incomes = get_categories_summary(message.from_user.id, "income")
+
+    if not expenses and not incomes:
+        bot.send_message(message.chat.id, "📭 Данных пока нет. Добавьте транзакцию командой /add", reply_markup=main_keyboard())
+        return
+
+    lines = ["📊 *Сводка по категориям:*\n"]
+
+    if expenses:
+        total_exp = sum(r["total"] for r in expenses)
+        lines.append("📉 *Расходы:*")
+        for r in expenses:
+            pct = r["total"] / total_exp * 100
+            lines.append(f"  • {r['category']}: {r['total']:,.2f} ₽ ({pct:.0f}%)")
+        lines.append(f"  *Итого: {total_exp:,.2f} ₽*\n")
+
+    if incomes:
+        total_inc = sum(r["total"] for r in incomes)
+        lines.append("📈 *Доходы:*")
+        for r in incomes:
+            pct = r["total"] / total_inc * 100
+            lines.append(f"  • {r['category']}: {r['total']:,.2f} ₽ ({pct:.0f}%)")
+        lines.append(f"  *Итого: {total_inc:,.2f} ₽*")
+
+    bot.send_message(message.chat.id, "\n".join(lines), parse_mode="Markdown", reply_markup=main_keyboard())
+
+
+@bot.message_handler(commands=["month"])
+@bot.message_handler(func=lambda m: m.text == "📅 Месяц")
+def cmd_month(message):
+    month = get_monthly_summary(message.from_user.id)
+    income = month["income"] if month else 0
+    expense = month["expense"] if month else 0
+    diff = income - expense
+
+    emoji = "🟢" if diff >= 0 else "🔴"
+    bot.send_message(
+        message.chat.id,
+        f"📅 *Итоги текущего месяца:*\n\n"
+        f"📈 Доходы: *{income:,.2f} ₽*\n"
+        f"📉 Расходы: *{expense:,.2f} ₽*\n"
+        f"{emoji} Итог: *{diff:+,.2f} ₽*",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+
+
+@bot.message_handler(commands=["undo"])
+def cmd_undo(message):
+    if delete_last(message.from_user.id):
+        balance = get_balance(message.from_user.id)
+        bot.send_message(
+            message.chat.id,
+            f"↩️ Последняя запись удалена.\n💰 Текущий баланс: *{balance:,.2f} ₽*",
+            parse_mode="Markdown",
+            reply_markup=main_keyboard()
+        )
+    else:
+        bot.send_message(message.chat.id, "❌ Нет записей для удаления", reply_markup=main_keyboard())
+
+
+@bot.message_handler(func=lambda m: True)
+def fallback(message):
+    bot.send_message(
+        message.chat.id,
+        "Не понял команду. Используй /help для справки.",
+        reply_markup=main_keyboard()
+    )
+
+
+def run_polling():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(send_daily_reminder, "cron", minute="*")
+    scheduler.start()
+    print("Бот запущен в режиме polling ✅")
+    if MINIAPP_URL:
+        print(f"Mini App URL: {MINIAPP_URL}")
+    try:
+        bot.infinity_polling()
+    finally:
+        scheduler.shutdown()
+
+
+def run_webhook(port: int, base_path: str):
+    from flask import Flask, request as flask_request
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    flask_app = Flask(__name__)
+    webhook_path = base_path.rstrip("/") + "/webhook"
+    webhook_url = f"https://{PRIMARY_DOMAIN}{webhook_path}"
+
+    bot.remove_webhook()
+    bot.set_webhook(url=webhook_url)
+    print(f"Бот запущен в режиме webhook ✅")
+    print(f"Webhook URL: {webhook_url}")
+    if MINIAPP_URL:
+        print(f"Mini App URL: {MINIAPP_URL}")
+
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(send_daily_reminder, "cron", minute="*")
+    scheduler.start()
+
+    @flask_app.route(webhook_path, methods=["POST"])
+    def webhook():
+        update = telebot.types.Update.de_json(flask_request.get_json(force=True))
+        bot.process_new_updates([update])
+        return "", 200
+
+    @flask_app.route(base_path.rstrip("/") + "/healthz", methods=["GET"])
+    def healthz():
+        return {"status": "ok"}, 200
+
+    try:
+        flask_app.run(host="0.0.0.0", port=port)
+    finally:
+        scheduler.shutdown()
+
+
+if __name__ == "__main__":
+    init_db()
+    PORT = int(os.environ.get("PORT", 0))
+    BASE_PATH = os.environ.get("BASE_PATH", "/bot")
+
+    if PORT:
+        run_webhook(PORT, BASE_PATH)
+    else:
+        run_polling()
