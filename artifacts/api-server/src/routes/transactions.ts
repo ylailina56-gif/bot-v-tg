@@ -207,4 +207,26 @@ router.delete("/limits/:id", (req, res) => {
   res.json({ success: result.changes > 0 });
 });
 
+// ── Data import (merge users) ────────────────────────────────────────────────
+
+router.post("/import-data", (req, res) => {
+  const { to_user_id, from_user_id } = req.body as { to_user_id?: number; from_user_id?: number };
+  if (!to_user_id || !from_user_id || to_user_id === from_user_id) {
+    res.status(400).json({ error: "to_user_id and from_user_id required and must differ" });
+    return;
+  }
+  const db = getDb();
+  const txCount = (db.prepare("SELECT COUNT(*) AS n FROM transactions WHERE user_id=?").get(from_user_id) as { n: number }).n;
+  if (txCount === 0) {
+    db.close();
+    res.json({ imported: 0, message: "Нет данных для импорта" });
+    return;
+  }
+  db.prepare("UPDATE transactions SET user_id=? WHERE user_id=?").run(to_user_id, from_user_id);
+  db.prepare("UPDATE OR IGNORE limits SET user_id=? WHERE user_id=?").run(to_user_id, from_user_id);
+  db.prepare("DELETE FROM limits WHERE user_id=?").run(from_user_id);
+  db.close();
+  res.json({ imported: txCount });
+});
+
 export default router;

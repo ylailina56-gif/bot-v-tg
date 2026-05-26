@@ -5,21 +5,61 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { format, startOfMonth, eachDayOfInterval } from "date-fns";
-import { ArrowDownIcon, ArrowUpIcon, TrendingUp, TrendingDown, Trash2, Download } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, TrendingUp, TrendingDown, Trash2, Download, PackageOpen } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { useState, useEffect } from "react";
+
+const TEST_USER_ID = 1234567;
 
 export default function Dashboard() {
   const { userId } = useUser();
   const queryClient = useQueryClient();
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState(false);
 
   const { data: balance, isLoading: loadingBalance } = useGetBalance({ user_id: userId });
   const { data: monthly, isLoading: loadingMonthly } = useGetMonthlySummary({ user_id: userId });
   const { data: transactions, isLoading: loadingTxs } = useListTransactions({ user_id: userId, limit: 10 });
   const { data: monthTxs } = useListTransactions({ user_id: userId, limit: 100 });
   const deleteTx = useDeleteTransaction();
+
+  const [testCount, setTestCount] = useState<number | null>(null);
+  const isRealUser = userId !== TEST_USER_ID;
+
+  // Check once if there's data under the test user_id
+  useEffect(() => {
+    if (!isRealUser || imported) return;
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    fetch(`${base}/api/transactions?user_id=${TEST_USER_ID}&limit=1`)
+      .then(r => r.json())
+      .then((rows: unknown[]) => setTestCount(rows.length))
+      .catch(() => setTestCount(0));
+  }, [isRealUser, imported]);
+
+  const hasTestData = isRealUser && !imported && (testCount ?? 0) > 0;
+
+  const handleImport = async () => {
+    setImporting(true);
+    try {
+      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/api/import-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to_user_id: userId, from_user_id: TEST_USER_ID }),
+      });
+      const data = await res.json() as { imported: number };
+      if (data.imported > 0) {
+        setImported(true);
+        setTestCount(0);
+        queryClient.invalidateQueries();
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(amount);
@@ -84,6 +124,32 @@ export default function Dashboard() {
           CSV
         </Button>
       </div>
+
+      {/* Import test data banner */}
+      {hasTestData && (
+        <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="p-2 rounded-full bg-amber-100 dark:bg-amber-900/50 text-amber-600 flex-shrink-0">
+              <PackageOpen className="w-4 h-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Найдены тестовые данные</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                {testCount} {testCount === 1 ? "запись" : "записи/записей"} — нажмите, чтобы перенести к себе
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:border-amber-700 dark:hover:bg-amber-900/50 flex-shrink-0"
+              onClick={handleImport}
+              disabled={importing}
+            >
+              {importing ? "..." : "Перенести"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Balance Card */}
       <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-none shadow-lg">

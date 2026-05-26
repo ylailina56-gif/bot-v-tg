@@ -1,0 +1,2 @@
+- [DB path detection](db-path-detection.md) — SQLite path differs in dev (cwd=api-server) vs production (cwd=workspace root); use endsWith check.
+- [Telegram user sync](telegram-user-sync.md) — Mini App userId must come from multiple sources; initDataUnsafe alone is unreliable.
