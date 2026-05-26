@@ -38,9 +38,10 @@ function mainKeyboard() {
   return { keyboard, resize_keyboard: true };
 }
 
-function appInlineKeyboard() {
+function appInlineKeyboard(userId?: number) {
   if (!MINIAPP_URL) return null;
-  return { inline_keyboard: [[{ text: "📱 Открыть Mini App", web_app: { url: MINIAPP_URL } }]] };
+  const url = userId ? `${MINIAPP_URL}?uid=${userId}` : MINIAPP_URL;
+  return { inline_keyboard: [[{ text: "📱 Открыть Mini App", web_app: { url } }]] };
 }
 
 async function reply(chatId: number, text: string, extra?: object) {
@@ -188,7 +189,7 @@ async function handleStart(chatId: number, userId: number, firstName: string) {
   dbSaveUser(userId, chatId);
   const name = firstName || "друг";
   await reply(chatId, `Привет, ${name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n${HELP_TEXT}`, { reply_markup: mainKeyboard() });
-  const inlineKb = appInlineKeyboard();
+  const inlineKb = appInlineKeyboard(userId);
   if (inlineKb) {
     await reply(chatId, "Нажми кнопку ниже, чтобы открыть визуальный интерфейс:", { reply_markup: inlineKb });
   }
@@ -412,7 +413,7 @@ router.post("/telegram", async (req, res) => {
     if (text.startsWith("/undo")) { await handleUndo(chatId, userId); return; }
     if (text.startsWith("/stats")) { await handleStats(chatId, userId); return; }
     if (text.startsWith("/app")) {
-      const kb = appInlineKeyboard();
+      const kb = appInlineKeyboard(userId);
       if (kb) await reply(chatId, "Открыть визуальный интерфейс:", { reply_markup: kb });
       return;
     }

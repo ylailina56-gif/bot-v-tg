@@ -61,11 +61,12 @@ def main_keyboard():
     return kb
 
 
-def app_inline_button():
+def app_inline_button(user_id=None):
     if not MINIAPP_URL:
         return None
+    url = f"{MINIAPP_URL}?uid={user_id}" if user_id else MINIAPP_URL
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
+    kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=url)))
     return kb
 
 
@@ -80,7 +81,7 @@ def send_daily_reminder():
                 u["chat_id"],
                 "🔔 *Напоминание!*\n\nНе забудь записать расходы и доходы за сегодня.\nИспользуй /add или открой Mini App 📱",
                 parse_mode="Markdown",
-                reply_markup=app_inline_button()
+                reply_markup=app_inline_button(u.get("user_id"))
             )
         except Exception:
             pass
@@ -90,9 +91,7 @@ def send_daily_reminder():
 def cmd_start(message):
     save_user(message.from_user.id, message.chat.id)
     name = message.from_user.first_name or "друг"
-    inline_kb = InlineKeyboardMarkup()
-    if MINIAPP_URL:
-        inline_kb.add(InlineKeyboardButton("📱 Открыть Mini App", web_app=WebAppInfo(url=MINIAPP_URL)))
+    uid = message.from_user.id
     bot.send_message(
         message.chat.id,
         f"Привет, {name}! 👋\n\nЯ помогу тебе следить за доходами и расходами.\n\n{HELP_TEXT}",
@@ -103,7 +102,7 @@ def cmd_start(message):
         bot.send_message(
             message.chat.id,
             "Нажми кнопку ниже, чтобы открыть визуальный интерфейс:",
-            reply_markup=inline_kb
+            reply_markup=app_inline_button(uid)
         )
 
 
@@ -114,7 +113,7 @@ def cmd_help(message):
 
 @bot.message_handler(commands=["app"])
 def cmd_app(message):
-    kb = app_inline_button()
+    kb = app_inline_button(message.from_user.id)
     if kb:
         bot.send_message(message.chat.id, "Открыть визуальный интерфейс:", reply_markup=kb)
     else:

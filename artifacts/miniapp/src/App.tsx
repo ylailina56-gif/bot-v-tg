@@ -15,14 +15,32 @@ declare global {
     Telegram?: {
       WebApp?: {
         ready: () => void;
+        initData?: string;
         initDataUnsafe?: {
-          user?: {
-            id: number;
-          };
+          user?: { id: number };
         };
       };
     };
   }
+}
+
+function resolveTelegramUserId(): number | null {
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp) return null;
+
+  const fromUnsafe = webApp.initDataUnsafe?.user?.id;
+  if (fromUnsafe) return fromUnsafe;
+
+  try {
+    const params = new URLSearchParams(webApp.initData ?? "");
+    const userJson = params.get("user");
+    if (userJson) {
+      const user = JSON.parse(userJson) as { id?: number };
+      if (user?.id) return user.id;
+    }
+  } catch {}
+
+  return null;
 }
 
 const queryClient = new QueryClient({
@@ -112,17 +130,21 @@ function Router() {
 }
 
 function App() {
-  const [userId, setUserId] = useState<number>(1234567);
+  const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (window.Telegram?.WebApp) {
-      window.Telegram.WebApp.ready();
-      const tgUserId = window.Telegram.WebApp.initDataUnsafe?.user?.id;
-      if (tgUserId) {
-        setUserId(tgUserId);
-      }
-    }
+    window.Telegram?.WebApp?.ready();
+
+    const tgId = resolveTelegramUserId();
+    if (tgId) { setUserId(tgId); return; }
+
+    const urlId = new URLSearchParams(window.location.search).get("uid");
+    if (urlId) { setUserId(parseInt(urlId, 10)); return; }
+
+    setUserId(1234567);
   }, []);
+
+  if (userId === null) return null;
 
   return (
     <UserContext.Provider value={{ userId }}>
