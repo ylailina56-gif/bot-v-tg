@@ -1,4 +1,4 @@
-"""📥 Импорт банковских выписок с помощью ИИ (GigaChat)"""
+"""📥 """📥 Импорт банковских выписок с помощью ИИ (GigaChat)"""
 import io
 import json
 import os
@@ -26,10 +26,44 @@ PROMPT_TEMPLATE = """Ты — помощник финансового бота. 
 Строки выписки:
 {rows}"""
 
+_MODEL = None
+
+
+def _get_model():
+    """Один раз спрашиваем у Сбера список доступных моделей и выбираем лучшую."""
+    global _MODEL
+    if _MODEL:
+        return _MODEL
+    try:
+        with GigaChat(credentials=GIGACHAT_KEY, verify_ssl_certs=False, timeout=30) as g:
+            ms = g.get_models()
+            ids = []
+            for m in ms:
+                mid = None
+                if isinstance(m, dict):
+                    mid = m.get("id") or m.get("id_")
+                else:
+                    mid = getattr(m, "id_", None) or getattr(m, "id", None)
+                if mid:
+                    ids.append(mid)
+            print(f"🧠 [ИМПОРТ] Доступные модели: {ids}", flush=True)
+            for pref in ("GigaChat-Lite", "GigaChat", "GigaChat-Max", "GigaChat-Ultra"):
+                if pref in ids:
+                    _MODEL = pref
+                    break
+            if not _MODEL and ids:
+                _MODEL = ids[0]
+    except Exception as e:
+        print(f"⚠️ [ИМПОРТ] Не получил список моделей: {e}", flush=True)
+    if not _MODEL:
+        _MODEL = "GigaChat"
+    return _MODEL
+
 
 def _ask_ai(text):
     print("🤖 [ИМПОРТ] Запрашиваю нейросеть...", flush=True)
-    with GigaChat(credentials=GIGACHAT_KEY, verify_ssl_certs=False, timeout=30) as g:
+    model = _get_model()
+    with GigaChat(credentials=GIGACHAT_KEY, verify_ssl_certs=False, timeout=30, model=model) as g:
         resp = g.chat(text)
     print("✅ [ИМПОРТ] Нейросеть ответила", flush=True)
     return resp.choices[0].message.content
@@ -147,7 +181,7 @@ def register(bot):
                     amount = abs(float(it.get("amount", 0)))
                     if amount <= 0:
                         continue
-                    ttype = "income" if str(it.get("type")) == "income" else "expense"
+                    ttype = "income" if str(it.get("type")) == "income else "expense"
                     desc = str(it.get("desc", ""))[:100]
                     cat = str(it.get("category", "Прочее"))
                     if cat not in CATEGORIES:
