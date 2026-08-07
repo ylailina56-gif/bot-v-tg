@@ -1,194 +1,170 @@
-import sqlite3
 import os
+from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "finance.db")
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(DATABASE_URL)
+
+
+def query(sql, params=(), fetch=None):
+    conn = get_conn()
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(sql, params)
+        if fetch == "one":
+            data = cur.fetchone()
+        elif fetch == "all":
+            data = cur.fetchall()
+        else:
+            data = None
+        conn.commit()
+        return data
+    finally:
+        conn.close()
 
 
 def init_db():
-    conn = get_conn()
-    conn.execute("""
+    query("""
         CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
             type TEXT NOT NULL CHECK(type IN ('income', 'expense', 'saving')),
-            amount REAL NOT NULL,
+            amount DOUBLE PRECISION NOT NULL,
             category TEXT NOT NULL,
             note TEXT,
-            created_at DATETIME DEFAULT (datetime('now', 'localtime'))
+            created_at TEXT
         )
     """)
-    conn.execute("""
+    query("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            chat_id INTEGER NOT NULL,
+            user_id BIGINT PRIMARY KEY,
+            chat_id BIGINT NOT NULL,
             remind_hour INTEGER,
             remind_minute INTEGER
         )
     """)
-    conn.execute("""
+    query("""
         CREATE TABLE IF NOT EXISTS limits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
             category TEXT NOT NULL,
-            monthly_limit REAL NOT NULL,
+            monthly_limit DOUBLE PRECISION NOT NULL,
             UNIQUE(user_id, category)
         )
     """)
-    conn.commit()
-    conn.close()
 
 
-def add_transaction(
-    user_id: int, ttype: str, amount: float, category: str, note: str = ""
-):
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO transactions (user_id, type, amount, category, note) VALUES (?, ?, ?, ?, ?)",
-        (user_id, ttype, amount, category, note),
+def add_transaction(user_id, ttype, amount, category, note=""):
+    query(
+        "INSERT INTO transactions (user_id, type, amount, category, note, created_at) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (user_id, ttype, amount, category, note,
+         datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     )
-    conn.commit()
-    conn.close()
 
 
-def get_balance(user_id: int) -> float:
-    conn = get_conn()
-    row = conn.execute(
-        """SELECT
-            COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0) -
-            COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS balance
-           FROM transactions WHERE user_id = ?""",
+def get_balance(user_id):
+    row = query(
+        """
+        SELECT
+          COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0) -
+          COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS balance
+        FROM transactions WHERE user_id = %s
+        """,
         (user_id,),
-    ).fetchone()
-    conn.close()
-    return row["balance"] if row else 0.0
+        fetch="one",
+    )
+    return float(row["balance"]) if row else 0.0
 
 
-def get_history(user_id: int, limit: int = 10):
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+def get_history(user_id, limit=10):
+    return query(
+        "SELECT id, type, amount, category, note, created_at "
+        "FROM transactions WHERE user_id = %s ORDER BY id DESC LIMIT %s",
         (user_id, limit),
-    ).fetchall()
-    conn.close()
-    return rows
+        fetch="all",
+    ) or []
 
 
-def get_categories_summary(user_id: int, ttype: str):
-    conn = get_conn()
-    rows = conn.execute(
-        """SELECT category, SUM(amount) as total
-           FROM transactions
-           WHERE user_id = ? AND type = ?
-           GROUP BY category
-           ORDER BY total DESC""",
+def get_categories_summary(user_id, ttype):
+    return query(
+        "SELECT category, SUM(amount) AS total "
+        "FROM transactions WHERE user_id = %s AND type = %s "
+        "GROUP BY category ORDER BY total DESC",
         (user_id, ttype),
-    ).fetchall()
-    conn.close()
-    return rows
+        fetch="all",
+    ) or []
 
 
-def delete_last(user_id: int) -> bool:
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT id FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+def delete_last(user_id):
+    row = query(
+        "SELECT id FROM transactions WHERE user_id = %s ORDER BY id DESC LIMIT 1",
         (user_id,),
-    ).fetchone()
-    if row:
-        conn.execute("DELETE FROM transactions WHERE id = ?", (row["id"],))
-        conn.commit()
-        conn.close()
-        return True
-    conn.close()
-    return False
+        fetch="one",
+    )
+    if not row:
+        return False
+    query("DELETE FROM transactions WHERE id = %s", (row["id"],))
+    return True
 
 
-def get_monthly_summary(user_id: int):
-    conn = get_conn()
-    row = conn.execute(
-        """SELECT
-            COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0) AS income,
-            COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS expense
-           FROM transactions
-           WHERE user_id = ?
-             AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now', 'localtime')""",
-        (user_id,),
-    ).fetchone()
-    conn.close()
-    return row
+def get_monthly_summary(user_id):
+    prefix = datetime.now().strftime("%Y-%m")
+    row = query(
+        """
+        SELECT
+          COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END), 0) AS income,
+          COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END), 0) AS expense
+        FROM transactions
+        WHERE user_id = %s AND created_at LIKE %s
+        """,
+        (user_id, prefix + "%"),
+        fetch="one",
+    )
+    if not row:
+        return None
+    return {"income": float(row["income"]), "expense": float(row["expense"])}
 
 
-def save_user(user_id: int, chat_id: int):
-    conn = get_conn()
-    conn.execute(
-        "INSERT OR IGNORE INTO users (user_id, chat_id) VALUES (?, ?)",
+def save_user(user_id, chat_id):
+    query(
+        "INSERT INTO users (user_id, chat_id) VALUES (%s, %s) "
+        "ON CONFLICT (user_id) DO UPDATE SET chat_id = EXCLUDED.chat_id",
         (user_id, chat_id),
     )
-    conn.execute("UPDATE users SET chat_id = ? WHERE user_id = ?", (chat_id, user_id))
-    conn.commit()
-    conn.close()
 
 
-def set_reminder(user_id: int, hour: int, minute: int):
-    conn = get_conn()
-    conn.execute(
-        "UPDATE users SET remind_hour = ?, remind_minute = ? WHERE user_id = ?",
+def set_reminder(user_id, hour, minute):
+    query(
+        "UPDATE users SET remind_hour = %s, remind_minute = %s WHERE user_id = %s",
         (hour, minute, user_id),
     )
-    conn.commit()
-    conn.close()
 
 
-def get_reminder(user_id: int):
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT remind_hour, remind_minute FROM users WHERE user_id = ?", (user_id,)
-    ).fetchone()
-    conn.close()
-    return row
+def get_reminder(user_id):
+    return query(
+        "SELECT remind_hour, remind_minute FROM users WHERE user_id = %s",
+        (user_id,),
+        fetch="one",
+    )
 
 
-def get_all_reminder_users(hour: int, minute: int):
-    conn = get_conn()  # ← ВОТ ЭТОГО НЕ ХВАТАЛО!
-    rows = conn.execute(
-        "SELECT chat_id, user_id FROM users WHERE remind_hour = ? AND remind_minute = ?",
+def get_all_reminder_users(hour, minute):
+    return query(
+        "SELECT chat_id, user_id FROM users WHERE remind_hour = %s AND remind_minute = %s",
         (hour, minute),
-    ).fetchall()
-    conn.close()
-    return rows
+        fetch="all",
+    ) or []
 
 
-def set_limit(user_id: int, category: str, monthly_limit: float):
-    conn = get_conn()
-    conn.execute(
-        """INSERT INTO limits (user_id, category, monthly_limit) VALUES (?, ?, ?)
-           ON CONFLICT(user_id, category) DO UPDATE SET monthly_limit = excluded.monthly_limit""",
+def set_limit(user_id, category, monthly_limit):
+    query(
+        "INSERT INTO limits (user_id, category, monthly_limit) VALUES (%s, %s, %s) "
+        "ON CONFLICT (user_id, category) DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit",
         (user_id, category, monthly_limit),
     )
-    conn.commit()
-    conn.close()
-
-
-def get_limits(user_id: int):
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT id, category, monthly_limit FROM limits WHERE user_id = ? ORDER BY category",
-        (user_id,),
-    ).fetchall()
-    conn.close()
-    return rows
-
-
-def delete_limit(limit_id: int, user_id: int) -> bool:
-    conn = get_conn()
-    result = conn.execute(
-        "DELETE FROM limits WHERE id = ? AND user_id = ?", (limit_id, user_id)
-    )
-    conn.commit()
-    conn.close()
-    return result.rowcount > 0
