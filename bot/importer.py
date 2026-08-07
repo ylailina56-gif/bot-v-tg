@@ -28,8 +28,10 @@ PROMPT_TEMPLATE = """Ты — помощник финансового бота. 
 
 
 def _ask_ai(text):
-    with GigaChat(credentials=GIGACHAT_KEY, verify_ssl_certs=False) as g:
+    print("🤖 Запрашиваю нейросеть...")
+    with GigaChat(credentials=GIGACHAT_KEY, verify_ssl_certs=False, timeout=30) as g:
         resp = g.chat(text)
+    print("✅ Нейросеть ответила")
     return resp.choices[0].message.content
 
 
@@ -114,11 +116,13 @@ def register(bot):
 
             lines = read_xlsx(file_bytes) if low.endswith(".xlsx") else read_csv(file_bytes)
             lines = lines[:600]
+            print(f"📥 Строк из файла: {len(lines)}")
             if not lines:
                 bot.send_message(m.chat.id, "🤔 Не смог прочитать ни одной строки из файла.")
                 return
 
             items = analyze(lines)
+            print(f"🧠 Нейросеть распознала операций: {len(items)}")
             if not items:
                 bot.send_message(
                     m.chat.id,
