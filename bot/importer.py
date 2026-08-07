@@ -1,4 +1,4 @@
-"""📥 Импорт банковских выписок с помощью ИИ (GigaChat)"""
+"qq""📥 Импорт банковских выписок с помощью ИИ (GigaChat)"""
 import io
 import json
 import os
