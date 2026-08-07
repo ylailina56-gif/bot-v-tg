@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>💰 Мои финансы</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px 14px 30px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    background: var(--tg-theme-bg-color, #ffffff);
+    color: var(--tg-theme-text-color, #111111);
+  }
+  h1 { font-size: 20px; margin: 2px 0 14px; }
+  .card { background: var(--tg-theme-secondary-bg-color, #f2f3f7); border-radius: 16px; padding: 14px 16px; margin-bottom: 14px; }
+  .card-title { font-weight: 700; font-size: 14px; margin-bottom: 10px; opacity: .8; }
+  .balance-card { background: linear-gradient(135deg, #4f8ef7 0%, #8a5cf5 100%); color: #fff; text-align: center; padding: 20px 16px; }
+  .balance-num { font-size: 34px; font-weight: 800; margin: 6px 0; }
+  .month { font-size: 13px; opacity: .92; }
+  .month .inc { color: #b8f5c9; } .month .exp { color: #ffd2d4; }
+  .seg { display: flex; gap: 4px; background: var(--tg-theme-secondary-bg-color, #f2f3f7); border-radius: 12px; padding: 4px; margin-bottom: 10px; }
+  .seg-btn { flex: 1; border: none; background: transparent; color: var(--tg-theme-text-color, #111); padding: 9px 2px; border-radius: 9px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .seg-btn.active { background: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #fff); }
+  input { width: 100%; padding: 12px; margin: 5px 0; border-radius: 12px; border: 1px solid transparent; background: var(--tg-theme-secondary-bg-color, #f2f3f7); color: var(--tg-theme-text-color, #111); font-size: 16px; outline: none; }
+  input:focus { border-color: var(--tg-theme-button-color, #3390ec); }
+  .save { width: 100%; margin-top: 8px; padding: 13px; border: none; border-radius: 12px; background: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #fff); font-size: 16px; font-weight: 700; cursor: pointer; }
+  .save:disabled { opacity: .6; }
+  .h-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 2px; border-bottom: 1px solid rgba(128,128,128,.18); }
+  .h-item:last-child { border-bottom: none; }
+  .h-cat { font-weight: 600; font-size: 14px; }
+  .h-date { color: var(--tg-theme-hint-color, #8a8a8e); font-size: 12px; margin-top: 2px; }
+  .h-amt { font-weight: 700; font-size: 15px; white-space: nowrap; margin-left: 10px; }
+  .inc { color: #2eaf5f; } .exp { color: #e5484d; } .sav { color: #3b82f6; }
+  .empty { color: var(--tg-theme-hint-color, #8a8a8e); text-align: center; padding: 8px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+  <h1>💰 Мои финансы</h1>
+
+  <div class="card balance-card">
+    <div>Баланс</div>
+    <div class="balance-num" id="bal">...</div>
+    <div class="month" id="month"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">➕ Новая запись</div>
+    <div class="seg">
+      <button class="seg-btn" data-t="income">📈 Доход</button>
+      <button class="seg-btn active" data-t="expense">📉 Расход</button>
+      <button class="seg-btn" data-t="saving">🏦 Копилка</button>
+    </div>
+    <input type="number" id="amt" placeholder="Сумма, ₽" step="0.01" inputmode="decimal">
+    <input type="text" id="cat" placeholder="Категория (например, Еда)">
+    <button class="save" id="saveBtn" onclick="save()">Сохранить</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📋 Последние операции</div>
+    <div id="hist">...</div>
+  </div>
+
+<script>
+  const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  const API = '';
+  let curType = 'expense';
+
+  document.querySelectorAll('.seg-btn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      curType = b.dataset.t;
+      document.querySelectorAll('.seg-btn').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+    });
+  });
+
+  function fmt(n) { return Number(n).toLocaleString('ru-RU') + ' ₽'; }
+  function esc(s) { const d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+  function initData() { return tg ? tg.initData : ''; }
+
+  async function load() {
+    const balEl = document.getElementById('bal');
+    if (!tg) { balEl.textContent = 'Откройте в Telegram'; return; }
+    try {
+      const r = await fetch(API + '/api/balance?initData=' + encodeURIComponent(initData()));
+      const d = await r.json();
+      if (d.error) { balEl.textContent = '🔒 нет доступа'; return; }
+      balEl.textContent = fmt(d.balance);
+      document.getElementById('month').innerHTML =
+        'за месяц: <span class="inc">+' + fmt(d.income) + '</span> / <span class="exp">−' + fmt(d.expense) + '</span>';
+    } catch (e) { balEl.textContent = '⚠️'; }
+  }
+
+  async function hist() {
+    const box = document.getElementById('hist');
+    if (!tg) { box.innerHTML = '<div class="empty">—</div>'; return; }
+    try {
+      const r = await fetch(API + '/api/history?initData=' + encodeURIComponent(initData()) + '&limit=8');
+      const d = await r.json();
+      if (d.error || !Array.isArray(d)) { box.innerHTML = '<div class="empty">🔒 нет доступа</div>'; return; }
+      if (d.length === 0) { box.innerHTML = '<div class="empty">Пока пусто 📭</div>'; return; }
+      box.innerHTML = d.map(function (x) {
+        const cls = x.type === 'income' ? 'inc' : (x.type === 'saving' ? 'sav' : 'exp');
+        const sign = x.type === 'income' ? '+' : (x.type === 'saving' ? '🏦 ' : '−');
+        const icon = x.type === 'income' ? '📈' : (x.type === 'saving' ? '🏦' : '📉');
+        let ds = '';
+        const dt = new Date(String(x.date).replace(' ', 'T'));
+        if (!isNaN(dt)) ds = dt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+        return '<div class="h-item">' +
+          '<div><div class="h-cat">' + icon + ' ' + esc(x.category) + '</div><div class="h-date">' + ds + '</div></div>' +
+          '<div class="h-amt ' + cls + '">' + sign + fmt(x.amount) + '</div>' +
+        '</div>';
+      }).join('');
+    } catch (e) { box.innerHTML = '<div class="empty">⚠️ не загрузилось</div>'; }
+  }
+
+  async function save() {
+    const a = parseFloat(document.getElementById('amt').value);
+    const c = document.getElementById('cat').value.trim() || 'Разное';
+    if (!a || a <= 0) { if (tg) tg.showAlert('Введите сумму больше 0'); return; }
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true; btn.textContent = 'Сохраняю…';
+    try {
+      const r = await fetch(API + '/api/transaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-InitData': initData() },
+        body: JSON.stringify({ type: curType, amount: a, category: c, note: '' })
+      });
+      const d = await r.json();
+      if (d.error) { if (tg) tg.showAlert('❌ ' + d.error); }
+      else {
+        if (tg) tg.showAlert('✅ Записано!');
+        document.getElementById('amt').value = '';
+        document.getElementById('cat').value = '';
+        load(); hist();
+      }
+    } catch (e) { if (tg) tg.showAlert('⚠️ Ошибка сети'); }
+    btn.disabled = false; btn.textContent = 'Сохранить';
+  }
+
+  load(); hist();
+</script>
+</body>
+</html>
