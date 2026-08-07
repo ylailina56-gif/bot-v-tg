@@ -105,7 +105,7 @@ def register(bot):
         try:
             file_info = bot.get_file(m.document.file_id)
             resp = bot.download_file(file_info.file_path)
-                        if isinstance(resp, bytes):
+            if isinstance(resp, bytes):
                 file_bytes = resp
             elif hasattr(resp, "read"):
                 file_bytes = resp.read()
