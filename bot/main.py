@@ -371,7 +371,8 @@ def run_polling():
     finally:
         sched.shutdown()
 
-
+import importer
+importer.register(bot)
 if __name__ == "__main__":
     init_db()
     PORT = int(os.environ.get("PORT", 0))
