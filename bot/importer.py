@@ -105,7 +105,12 @@ def register(bot):
         try:
             file_info = bot.get_file(m.document.file_id)
             resp = bot.download_file(file_info.file_path)
-            file_bytes = resp.read() if hasattr(resp, "read") else resp.content
+                        if isinstance(resp, bytes):
+                file_bytes = resp
+            elif hasattr(resp, "read"):
+                file_bytes = resp.read()
+            else:
+                file_bytes = resp.content
 
             lines = read_xlsx(file_bytes) if low.endswith(".xlsx") else read_csv(file_bytes)
             lines = lines[:600]
