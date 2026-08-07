@@ -138,47 +138,9 @@ def api_get_history():
 @app.route("/miniapp/", methods=["GET"])
 @app.route("/miniapp/index.html", methods=["GET"])
 def serve_miniapp():
-    return (
-        """<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>💰 Финансы</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-body{font-family:system-ui;background:var(--tg-theme-bg-color,#fff);color:var(--tg-theme-text-color,#000);padding:16px;margin:0}
-.card{background:var(--tg-theme-secondary-bg-color,#f5f5f5);border-radius:12px;padding:16px;margin-bottom:12px}
-.balance{font-size:24px;font-weight:700;text-align:center;margin:8px 0}
-input,select,button{width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ccc;background:var(--tg-theme-bg-color,#fff);color:var(--tg-theme-text-color,#000);font-size:16px}
-button{background:var(--tg-theme-button-color,#3390ec);color:#fff;border:none;font-weight:600;cursor:pointer}
-.row{display:flex;gap:8px}
-.h-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}
-.inc{color:#4caf50}.exp{color:#f44336}.sav{color:#2196f3}
-</style>
-</head>
-<body>
-<div class="card"><div style="text-align:center;font-weight:500">💰 Баланс</div><div class="balance" id="bal">...</div></div>
-<div class="card"><div style="font-weight:600;margin-bottom:8px">➕ Запись</div>
-<select id="type"><option value="income">Доход</option><option value="expense">Расход</option><option value="saving">Накопления</option></select>
-<input type="number" id="amt" placeholder="Сумма" step="0.01">
-<input type="text" id="cat" placeholder="Категория">
-<button onclick="save()">Сохранить</button></div>
-<div class="card"><div style="font-weight:600;margin-bottom:8px">📋 История</div><div id="hist">...</div></div>
-<script>
-const tg=window.Telegram.WebApp;tg.expand();
-const API='';
-async function load(){const r=await fetch(API+'/api/balance?initData='+encodeURIComponent(tg.initData));const d=await r.json();if(d.error)return;document.getElementById('bal').textContent=d.balance.toLocaleString('ru')+' ₽';}
-async function hist(){const r=await fetch(API+'/api/history?initData='+encodeURIComponent(tg.initData)+'&limit=5');const d=await r.json();if(d.error)return;document.getElementById('hist').innerHTML=d.map(x=>{const c=x.type==='income'?'inc':(x.type==='saving'?'sav':'exp');const s=x.type==='income'?'+':(x.type==='saving'?'🏦':'-');return '<div class=\'h-item\'><div><b>'+x.category+'</b><br><small style=\'color:#888\'>'+new Date(x.date).toLocaleDateString('ru')+'</small></div><div class=\''+c+'\'><b>'+s+x.amount+' ₽</b></div></div>';}).join('');}
-async function save(){const t=document.getElementById('type').value,a=parseFloat(document.getElementById('amt').value),c=document.getElementById('cat').value||'Разное';if(!a||a<=0)return tg.showAlert('Введи сумму > 0');tg.MainButton.showProgress();const r=await fetch(API+'/api/transaction',{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-InitData':tg.initData},body:JSON.stringify({type:t,amount:a,category:c,note:''})});const d=await r.json();if(d.error)tg.showAlert('❌ '+d.error);else{tg.showAlert('✅ Готово');document.getElementById('amt').value='';document.getElementById('cat').value='';load();hist();}tg.MainButton.hideProgress();}
-load();hist();
-</script>
-</body>
-</html>""",
-        200,
-        {"Content-Type": "text/html; charset=utf-8"},
-    )
-
+    p = os.path.join(os.path.dirname(__file__), "miniapp.html")
+    with open(p, encoding="utf-8") as f:
+        return f.read(), 200, {"Content-Type": "text/html; charset=utf-8"}
 
 # 🤖 Bot
 HELP = """
